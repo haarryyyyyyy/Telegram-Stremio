@@ -115,8 +115,12 @@ async def decay_client_failures() -> None:
 
 #----- Parallelism/prefetch factor scaled by the number of clients
 def get_parallel_prefetch(client_count: int) -> tuple[int, int]:
-    value = min(max(math.ceil(client_count / 5), 1), 5)
-    return value, value
+    # Dynamic concurrency pipeline:
+    # Baseline for single client: 3 parallel chunk requests, 6 chunk prefetch buffer (~6 MB ahead)
+    # Scales dynamically as more worker clients/tokens are available
+    parallelism = min(max(3 + client_count * 2, 3), 12)
+    prefetch = min(max(6 + client_count * 3, 6), 24)
+    return parallelism, prefetch
 
 
 #----- Reuse (or lazily create) the cached ByteStreamer for a client index
@@ -479,6 +483,7 @@ async def global_media_streamer(request: Request, chat_id: int, msg_id: int, tok
     if request.method == "HEAD":
         return PlainResponse(status_code=status, headers=headers)
 
+    parallelism, prefetch_count = get_parallel_prefetch(0)
     body_gen = await streamer.prefetch_stream(
         file_id=file_id,
         client_index=USERBOT_CLIENT_INDEX,
@@ -487,10 +492,10 @@ async def global_media_streamer(request: Request, chat_id: int, msg_id: int, tok
         last_part_cut=last_part_cut,
         part_count=part_count,
         chunk_size=chunk_size,
-        prefetch=1,
+        prefetch=prefetch_count,
         stream_id=stream_id,
         meta=meta,
-        parallelism=1,
+        parallelism=parallelism,
         request=request,
         chat_id=chat_id,
         message_id=msg_id,
@@ -535,10 +540,11 @@ async def global_virtual_media_streamer(request: Request, parts_payload: list, t
     if request.method == "HEAD":
         return PlainResponse(status_code=status, headers=headers)
 
+    parallelism, prefetch_count = get_parallel_prefetch(0)
     body_gen = virtual_stream_generator(
         parts=parts, start=start, end=end, chunk_size=chunk_size,
         streamer=streamer, client_index=USERBOT_CLIENT_INDEX, request=request, meta=meta,
-        stream_id=stream_id, parallelism=1, prefetch_count=1,
+        stream_id=stream_id, parallelism=parallelism, prefetch_count=prefetch_count,
     )
     return StreamingResponse(body_gen, headers=headers, status_code=status, media_type=mime_type)
 
@@ -622,9 +628,10 @@ async def _zip_media_streamer(request, parts_payload, token, token_data, stream_
 
 #----- ZIP split from Global Search (streamed via the Userbot session)
 async def global_zip_media_streamer(request: Request, parts_payload: list, token: str, token_data: dict = None, stream_id_hash: str = None):
+    parallelism, prefetch_count = get_parallel_prefetch(0)
     return await _zip_media_streamer(
         request, parts_payload, token, token_data, stream_id_hash,
-        _get_userbot_streamer(), USERBOT_CLIENT_INDEX, False, 1, 1,
+        _get_userbot_streamer(), USERBOT_CLIENT_INDEX, False, parallelism, prefetch_count,
     )
 
 
