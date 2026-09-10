@@ -67,6 +67,7 @@ class Database:
             LOGGER.info(f"Active storage DB: storage_{self.current_db_index}")
 
             await self.ensure_indexes()
+            create_task(self.prune_tracking_data())
 
         except Exception as e:
             LOGGER.error(f"Database connection error: {e}")
@@ -109,10 +110,48 @@ class Database:
             await tracking["requests"].create_index([("user_id", ASCENDING)])
             await tracking["requests"].create_index([("tmdb_id", ASCENDING), ("media_type", ASCENDING)])
 
+            # User Activity
+            await tracking["user_activity"].create_index([("last_active", DESCENDING)])
+
+            # Stream Analytics TTL (auto-expires old stream telemetry logs after 14 days)
+            await tracking["stream_analytics"].create_index([("logged_at", DESCENDING)])
+            await tracking["stream_analytics"].create_index([("logged_at", ASCENDING)], expireAfterSeconds=14 * 86400)
+
             # Subtitles
             await self._ensure_subtitle_indexes(tracking)
         except Exception as e:
             LOGGER.error(f"Failed creating tracking indexes: {e}")
+
+    async def prune_tracking_data(self, stream_analytics_days: int = 14, requests_days: int = 30) -> dict:
+        """Prunes historical stream telemetry and old completed requests to reclaim MongoDB storage."""
+        tracking = self.dbs.get("tracking")
+        if tracking is None:
+            return {"deleted_analytics": 0, "deleted_requests": 0}
+
+        results = {"deleted_analytics": 0, "deleted_requests": 0}
+        try:
+            now = datetime.now(timezone.utc)
+            # Prune old stream analytics
+            analytics_cutoff = now - timedelta(days=stream_analytics_days)
+            res_analytics = await tracking["stream_analytics"].delete_many({"logged_at": {"$lt": analytics_cutoff}})
+            results["deleted_analytics"] = res_analytics.deleted_count
+
+            # Prune completed or rejected requests older than requests_days
+            requests_cutoff = now - timedelta(days=requests_days)
+            res_requests = await tracking["requests"].delete_many({
+                "status": {"$in": ["completed", "rejected", "failed"]},
+                "created_at": {"$lt": requests_cutoff}
+            })
+            results["deleted_requests"] = res_requests.deleted_count
+
+            if results["deleted_analytics"] > 0 or results["deleted_requests"] > 0:
+                LOGGER.info(
+                    f"Storage Cleanup: Pruned {results['deleted_analytics']} old stream logs and "
+                    f"{results['deleted_requests']} old request records."
+                )
+        except Exception as e:
+            LOGGER.warning(f"Error pruning tracking data: {e}")
+        return results
 
     async def _ensure_subtitle_indexes(self, tracking) -> None:
         subs = tracking["subtitles"]
