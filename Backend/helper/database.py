@@ -76,18 +76,43 @@ class Database:
     async def ensure_indexes(self) -> None:
         tracking = self.dbs.get("tracking")
         if tracking is not None:
-            try:
-                await tracking["custom_catalogs"].create_index([("updated_at", DESCENDING)])
-                await tracking["custom_catalogs"].create_index(
-                    [("items.tmdb_id", ASCENDING), ("items.media_type", ASCENDING)]
-                )
-                await self._ensure_subtitle_indexes(tracking)
-            except Exception as e:
-                LOGGER.error(f"Failed creating tracking indexes: {e}")
+            await self._ensure_tracking_indexes(tracking)
 
         for db_key in list(self.dbs.keys()):
             if db_key.startswith("storage_"):
                 await self._ensure_storage_indexes(db_key)
+
+    async def _ensure_tracking_indexes(self, tracking) -> None:
+        try:
+            # Custom catalogs
+            await tracking["custom_catalogs"].create_index([("updated_at", DESCENDING)])
+            await tracking["custom_catalogs"].create_index(
+                [("items.tmdb_id", ASCENDING), ("items.media_type", ASCENDING)]
+            )
+            await tracking["custom_catalogs"].create_index([("catalog_id", ASCENDING)], sparse=True)
+
+            # Auto catalogs
+            await tracking["auto_catalogs"].create_index([("channel_id", ASCENDING)])
+            await tracking["auto_catalogs"].create_index([("enabled", ASCENDING)])
+
+            # API tokens / User accounts
+            await tracking["api_tokens"].create_index([("token", ASCENDING)], unique=True, sparse=True)
+            await tracking["api_tokens"].create_index([("user_id", ASCENDING)])
+            await tracking["api_tokens"].create_index([("expires_at", ASCENDING)], sparse=True)
+
+            # Users
+            await tracking["users"].create_index([("subscription_status", ASCENDING), ("subscription_expiry", ASCENDING)])
+            await tracking["users"].create_index([("last_interaction", DESCENDING)], sparse=True)
+
+            # Requests
+            await tracking["requests"].create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+            await tracking["requests"].create_index([("user_id", ASCENDING)])
+            await tracking["requests"].create_index([("tmdb_id", ASCENDING), ("media_type", ASCENDING)])
+
+            # Subtitles
+            await self._ensure_subtitle_indexes(tracking)
+        except Exception as e:
+            LOGGER.error(f"Failed creating tracking indexes: {e}")
 
     async def _ensure_subtitle_indexes(self, tracking) -> None:
         subs = tracking["subtitles"]
@@ -109,18 +134,37 @@ class Database:
         await subs.create_index([("imdb_id", ASCENDING), ("season", ASCENDING), ("episode", ASCENDING)])
 
     #----- Ensure per-storage-DB indexes on the movie/tv collections.
-    #----- tmdb_id + imdb_id drive catalog hydration and stream lookups.
+    #----- tmdb_id + imdb_id + compound fields drive catalog hydration and stream lookups.
     async def _ensure_storage_indexes(self, db_key: str) -> None:
         db = self.dbs.get(db_key)
         if db is None:
             return
         for collection_name in ("movie", "tv"):
             try:
-                await db[collection_name].create_index([("tmdb_id", ASCENDING)])
-                await db[collection_name].create_index([("imdb_id", ASCENDING)])
-                await db[collection_name].create_index([("kitsu_id", ASCENDING)])
+                coll = db[collection_name]
+                # Primary ID lookups (for stream matching and detail lookups)
+                await coll.create_index([("tmdb_id", ASCENDING)])
+                await coll.create_index([("imdb_id", ASCENDING)])
+                await coll.create_index([("kitsu_id", ASCENDING)])
+                await coll.create_index([("telegram.id", ASCENDING)], sparse=True)
+
+                # Catalog sorting & browsing
+                await coll.create_index([("created_at", DESCENDING)])
+                await coll.create_index([("release_year", DESCENDING)])
+                await coll.create_index([("rating", DESCENDING)])
+                await coll.create_index([("title", ASCENDING)])
+                await coll.create_index([("visibility", ASCENDING)])
+
+                # Catalog filtering (genres, country)
+                await coll.create_index([("genres", ASCENDING)])
+                await coll.create_index([("origin_country", ASCENDING)], sparse=True)
+
+                # High-performance compound indexes for Stremio catalog queries
+                await coll.create_index([("visibility", ASCENDING), ("created_at", DESCENDING)])
+                await coll.create_index([("genres", ASCENDING), ("created_at", DESCENDING)])
+                await coll.create_index([("genres", ASCENDING), ("release_year", DESCENDING)])
             except Exception as e:
-                LOGGER.error(f"Failed creating index on {db_key}/{collection_name}: {e}")
+                LOGGER.error(f"Failed creating indexes on {db_key}/{collection_name}: {e}")
 
     async def disconnect(self):
         for client in self.clients.values():
