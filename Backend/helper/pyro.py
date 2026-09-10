@@ -35,9 +35,20 @@ _DECORATION_PATTERN = re.compile(
     re.UNICODE,
 )
 
-#----- Telegram / social-media channel tag patterns
+#----- Telegram / social-media channel tag patterns and domains
 _CHANNEL_TAG_PATTERN = re.compile(
-    r"_@[A-Za-z]+_|@[A-Za-z]+_|[\[\]\s@]*@[^.\s\[\]]+[\]\[\s@]*"
+    r"_@[A-Za-z0-9_]+_|@[A-Za-z0-9_]+_|[\[\]\s@]*@[^.\s\[\]]+[\]\[\s@]*|(?:t\.me|telegram\.me)[/_][A-Za-z0-9_]+",
+    re.IGNORECASE,
+)
+
+_DOMAIN_TAG_PATTERN = re.compile(
+    r"\b(?:www\.)?[A-Za-z0-9_-]+\.(?:com|net|org|in|vip|me|to|is|cc|mov|tv|site|xyz|online|club|top|tech|info|co|biz|live|pro|click|download)\b",
+    re.IGNORECASE,
+)
+
+_LEADING_CHANNEL_PREFIX = re.compile(
+    r"^(?:[\[({【][^\])}】]{1,35}[\])}】]\s*|[\w.-]{2,25}\s*[-:|~•]\s*(?=[A-Za-z0-9]))",
+    re.IGNORECASE,
 )
 
 _CODEC_TAG_PATTERN = re.compile(
@@ -123,13 +134,19 @@ def clean_filename(filename: str) -> str:
     #----- Keep standard filename-safe characters: alphanumerics, . - _ ( ) [ ] ' " , : ! ? & + @
     filename = re.sub(r"[^\x20-\x7E]", " ", filename)
 
-    #----- 5 – Remove Telegram channel tags  (@ChannelName_ etc.)
-    filename = _CHANNEL_TAG_PATTERN.sub("", filename)
+    #----- 5 – Remove Telegram channel tags (@ChannelName_ etc.)
+    filename = _CHANNEL_TAG_PATTERN.sub(" ", filename)
 
-    #----- 6 – Remove codec / source tags that clutter the title region
+    #----- 6 – Remove domain names (e.g. movies4u.vip, site.com)
+    filename = _DOMAIN_TAG_PATTERN.sub(" ", filename)
+
+    #----- 7 – Remove leading channel prefixes (e.g. [movies4u], movies4u - )
+    filename = _LEADING_CHANNEL_PREFIX.sub("", filename.strip())
+
+    #----- 8 – Remove codec / source tags that clutter the title region
     filename = _CODEC_TAG_PATTERN.sub(" ", filename)
 
-    #----- 7 – Collapse multiple spaces; remove space before extension dot
+    #----- 9 – Collapse multiple spaces; remove space before extension dot
     filename = re.sub(r"\s+", " ", filename).strip().replace(" .", ".")
 
     return filename if filename else "unknown_file"

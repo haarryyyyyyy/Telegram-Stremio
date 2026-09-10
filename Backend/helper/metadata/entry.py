@@ -141,8 +141,7 @@ async def metadata(
             parsed["episode"] = abs_ep
 
     if not quality:
-        LOGGER.warning(f"Skipping {filename}: No resolution (parsed={parsed})")
-        return None
+        quality = "HD"
     if not title:
         LOGGER.info(f"No title parsed from: {filename} (parsed={parsed})")
         return None
