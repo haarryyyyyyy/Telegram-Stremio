@@ -1,6 +1,7 @@
 import re
 import secrets
 import string
+import time
 from asyncio import create_task
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,6 +17,9 @@ from Backend.helper.modal import Episode, MovieSchema, QualityDetail, QualityPar
 from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.task_manager import delete_message
 from Backend.logger import LOGGER
+
+_API_TOKEN_CACHE: Dict[str, Tuple[dict, float]] = {}
+_API_TOKEN_CACHE_TTL = 60  # Cache token auth for 60 seconds to eliminate streaming latency
 
 
 
@@ -2315,6 +2319,7 @@ class Database:
 
     #----- Toggle a token's lifetime (subscription-exempt) flag
     async def set_token_lifetime(self, token: str, exempt: bool) -> bool:
+        _API_TOKEN_CACHE.pop(token, None)
         result = await self.dbs["tracking"]["api_tokens"].update_one(
             {"token": token}, {"$set": {"subscription_exempt": bool(exempt)}}
         )
@@ -2323,6 +2328,7 @@ class Database:
     #----- Set/extend/reduce a token's own expiry (used when subscription mode is off).
     #----- 'set' with 0/None days clears the expiry (never expires).
     async def update_token_expiry(self, token: str, action: str = "set", days: int = 0) -> Optional[dict]:
+        _API_TOKEN_CACHE.pop(token, None)
         doc = await self.dbs["tracking"]["api_tokens"].find_one({"token": token})
         if not doc:
             return None
@@ -2348,6 +2354,7 @@ class Database:
 
     #----- Mark every token that isn't linked to a user as lifetime
     async def grant_lifetime_to_unlinked(self) -> int:
+        _API_TOKEN_CACHE.clear()
         result = await self.dbs["tracking"]["api_tokens"].update_many(
             {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]},
             {"$set": {"subscription_exempt": True}},
@@ -2374,8 +2381,17 @@ class Database:
         return count
 
     async def get_api_token(self, token: str) -> Optional[dict]:
+        if not token:
+            return None
+        now = time.time()
+        cached = _API_TOKEN_CACHE.get(token)
+        if cached and now < cached[1]:
+            return cached[0]
         doc = await self.dbs["tracking"]["api_tokens"].find_one({"token": token})
-        return convert_objectid_to_str(doc) if doc else None
+        res = convert_objectid_to_str(doc) if doc else None
+        if res:
+            _API_TOKEN_CACHE[token] = (res, now + _API_TOKEN_CACHE_TTL)
+        return res
 
     #----- The (single) token linked to a given user_id, if any
     async def get_api_token_by_user(self, user_id: int) -> Optional[dict]:
@@ -2388,6 +2404,7 @@ class Database:
         return [convert_objectid_to_str(token) for token in tokens]
 
     async def revoke_api_token(self, token: str) -> bool:
+        _API_TOKEN_CACHE.pop(token, None)
         result = await self.dbs["tracking"]["api_tokens"].delete_one({"token": token})
         if result.deleted_count > 0:
             try:
@@ -2397,6 +2414,7 @@ class Database:
         return result.deleted_count > 0
 
     async def set_token_config(self, token: str, config: dict) -> bool:
+        _API_TOKEN_CACHE.pop(token, None)
         result = await self.dbs["tracking"]["api_tokens"].update_one(
             {"token": token}, {"$set": {"config": config}}
         )
@@ -2405,6 +2423,7 @@ class Database:
     async def link_token_user(self, token: str, user_id: int, name: str = None) -> bool:
         #----- Link an existing token to a Telegram user_id; elevate to admin when
         #----- the linked user is the configured owner. Optionally overwrite the name.
+        _API_TOKEN_CACHE.pop(token, None)
         update = {"user_id": user_id, "is_admin": self._is_owner(user_id)}
         if name:
             update["name"] = name

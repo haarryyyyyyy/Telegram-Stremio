@@ -340,19 +340,10 @@ async def media_streamer(request: Request, chat_id: int, msg_id: int, token: str
     extra_clients_for_stream = []
     if parallelism > 1 and len(multi_clients) > 1:
         other_indices = sorted((i for i in multi_clients if i != index), key=lambda i: work_loads.get(i, 0))
-
-        async def _get_extra_file_id(ec_idx: int):
+        for ec_idx in other_indices[:parallelism - 1]:
             ec_client = multi_clients[ec_idx]
             ec_streamer = _get_streamer(ec_client, ec_idx)
-            try:
-                ec_fid = await ec_streamer.get_file_properties(chat_id=chat_id, message_id=msg_id)
-                return (ec_idx, ec_streamer, ec_fid)
-            except Exception as e:
-                LOGGER.warning("Extra client %s file_id fetch failed: %s", ec_idx, e)
-                return None
-
-        results = await asyncio.gather(*[_get_extra_file_id(i) for i in other_indices[:parallelism - 1]])
-        extra_clients_for_stream = [r for r in results if r is not None]
+            extra_clients_for_stream.append((ec_idx, ec_streamer, file_id))
 
     body_gen = await streamer.prefetch_stream(
         file_id=file_id,
