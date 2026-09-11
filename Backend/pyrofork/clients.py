@@ -95,12 +95,6 @@ async def initialize_clients() -> None:
     else:
         LOGGER.info("No additional clients were initialized, using default client")
 
-    for cid, c in list(multi_clients.items()):
-        try:
-            _get_streamer(c, cid)
-        except Exception:
-            pass
-
 
 #----- Reconcile running clients with the current token settings
 async def reload_multi_token_clients() -> dict:
@@ -123,10 +117,6 @@ async def reload_multi_token_clients() -> dict:
         for cid, tok in to_start.items():
             if cid in started:
                 client_tokens[cid] = tok
-                try:
-                    _get_streamer(started[cid], cid)
-                except Exception:
-                    pass
 
     LOGGER.info(
         f"Multi-token reload complete — {len(to_stop)} stopped, "

@@ -24,9 +24,6 @@ RECENT_STREAMS = deque(maxlen=20)
 STALE_STREAM_IDLE = 180
 _STALE_CLEANER_STARTED = False
 
-_GLOBAL_FILE_ID_CACHE: Dict[Tuple[int, int], Tuple[FileId, float]] = {}
-_FILE_ID_CACHE_TTL = 7200  # 2 hours
-
 
 async def _cleanup_stale_streams():
     while True:
@@ -73,6 +70,7 @@ class ByteStreamer:
     def __init__(self, client: Client, client_index: int = -1):
         self.client = client
         self.client_index = client_index
+        self._file_id_cache: Dict[Tuple[int, int], FileId] = {}
         self._session_lock = asyncio.Lock()
         if client_index >= 0:
             ByteStreamer._instances[client_index] = self
@@ -82,13 +80,8 @@ class ByteStreamer:
 
     async def _prewarm_sessions(self):
         common_dcs = [1, 2, 4, 5]
-        try:
-            test_mode = await self.client.storage.test_mode()
-            current_dc = await self.client.storage.dc_id()
-        except Exception:
-            test_mode = False
-            current_dc = 4
-
+        test_mode = await self.client.storage.test_mode()
+        current_dc = await self.client.storage.dc_id()
         for dc in common_dcs:
             if dc in self.client.media_sessions or dc == current_dc:
                 continue
@@ -119,20 +112,16 @@ class ByteStreamer:
             except Exception:
                 continue
 
-    #----- Fetch (and cache globally) Telegram FileId properties for a message
+    #----- Fetch (and cache) Telegram FileId properties for a message
     async def get_file_properties(self, chat_id: int, message_id: int) -> FileId:
         cache_key = (int(chat_id), int(message_id))
-        now = time.time()
-        cached = _GLOBAL_FILE_ID_CACHE.get(cache_key)
-        if cached and now < cached[1]:
-            return cached[0]
-
-        file_id = await get_file_ids(self.client, int(chat_id), int(message_id))
-        if not file_id:
-            LOGGER.warning("Message %s not found in chat %s", message_id, chat_id)
-            raise FileNotFound
-        _GLOBAL_FILE_ID_CACHE[cache_key] = (file_id, now + _FILE_ID_CACHE_TTL)
-        return file_id
+        if cache_key not in self._file_id_cache:
+            file_id = await get_file_ids(self.client, int(chat_id), int(message_id))
+            if not file_id:
+                LOGGER.warning("Message %s not found in chat %s", message_id, chat_id)
+                raise FileNotFound
+            self._file_id_cache[cache_key] = file_id
+        return self._file_id_cache[cache_key]
 
     #----- Build a prefetching, range-aware streaming generator for a file
     async def prefetch_stream(
@@ -192,10 +181,10 @@ class ByteStreamer:
                     return False
                 try:
                     cache_key = (int(chat_id), int(message_id))
-                    _GLOBAL_FILE_ID_CACHE.pop(cache_key, None)
+                    streamer_ref._file_id_cache.pop(cache_key, None)
                     fresh = await get_file_ids(streamer_ref.client, chat_id, message_id)
                     if fresh:
-                        _GLOBAL_FILE_ID_CACHE[cache_key] = (fresh, time.time() + _FILE_ID_CACHE_TTL)
+                        streamer_ref._file_id_cache[cache_key] = fresh
                         loc_b[0] = await ByteStreamer._get_location(fresh)
                         return True
                 except Exception as exc:
@@ -560,11 +549,8 @@ class ByteStreamer:
     async def _clean_cache(self) -> None:
         while True:
             await asyncio.sleep(self.CLEAN_INTERVAL)
-            now = time.time()
-            expired = [k for k, (_, exp) in list(_GLOBAL_FILE_ID_CACHE.items()) if now >= exp]
-            for k in expired:
-                _GLOBAL_FILE_ID_CACHE.pop(k, None)
-            LOGGER.debug("ByteStreamer: cleaned expired global file_id cache entries")
+            self._file_id_cache.clear()
+            LOGGER.debug("ByteStreamer: cleared file_id cache")
 
 
 #----- Speed test helper (runs independently, on-demand per file)
