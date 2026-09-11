@@ -325,63 +325,119 @@ _LANG_PATTERNS = [
 ]
 
 
-def _extract_stream_badges(filename: str, parsed: dict) -> tuple[list[str], list[str]]:
-    visual_badges = []
-    audio_sub_badges = []
+def _extract_stream_badges(filename: str, parsed: dict) -> tuple[str, list[str], list[str], list[str]]:
     fname = filename or ""
+    
+    # 1. Resolution Badge
+    res_badge = "1080p FHD"
+    raw_res = str(parsed.get("resolution", "")).lower()
+    fname_lower = fname.lower()
+    if any(k in raw_res or k in fname_lower for k in ("2160p", "4k", "uhd")):
+        res_badge = "4K UHD"
+    elif any(k in raw_res or k in fname_lower for k in ("1080p", "fhd")):
+        res_badge = "1080p FHD"
+    elif any(k in raw_res or k in fname_lower for k in ("720p", "hd")):
+        res_badge = "720p HD"
+    elif any(k in raw_res or k in fname_lower for k in ("480p", "sd")):
+        res_badge = "480p SD"
+    elif "360p" in fname_lower:
+        res_badge = "360p"
 
-    # Visual / Video format
+    # 2. Header badges (compact top badges)
+    header_badges = []
+    
+    # Source / Edition
+    source = ""
+    if re.search(r"\bremux\b", fname, re.IGNORECASE):
+        source = "REMUX"
+    elif re.search(r"\b(?:bluray|bdrip|brrip)\b", fname, re.IGNORECASE):
+        source = "BluRay"
+    elif re.search(r"\b(?:web-?dl|webrip|web)\b", fname, re.IGNORECASE):
+        source = "WEB-DL"
+    elif re.search(r"\b(?:hdtv|pdtv|dsr)\b", fname, re.IGNORECASE):
+        source = "HDTV"
+    elif re.search(r"\b(?:dvdrip|dvd)\b", fname, re.IGNORECASE):
+        source = "DVD"
+    elif re.search(r"\b(?:cam|hdts|telesync|predvd|hdcam)\b", fname, re.IGNORECASE):
+        source = "CAM"
+
+    # HDR / Dolby Vision / IMAX
+    hdr_tags = []
+    if re.search(r"\b(?:dolby\s*vision|dovi|\bdv\b)\b", fname, re.IGNORECASE):
+        hdr_tags.append("Dolby Vision")
+    if re.search(r"\bhdr10\+\b", fname, re.IGNORECASE):
+        hdr_tags.append("HDR10+")
+    elif re.search(r"\bhdr(?:10)?\b", fname, re.IGNORECASE):
+        hdr_tags.append("HDR10")
+    if re.search(r"\bimax\b", fname, re.IGNORECASE):
+        hdr_tags.append("IMAX")
+
+    if "Dolby Vision" in hdr_tags:
+        header_badges.append("🌟 Dolby Vision")
+    elif "HDR10+" in hdr_tags:
+        header_badges.append("🌟 HDR10+")
+    elif "HDR10" in hdr_tags:
+        header_badges.append("🌟 HDR")
+    elif source:
+        header_badges.append(f"🎬 {source}")
+
+    # Codec & Bit-depth for Video Specs
+    video_badges = []
+    if source:
+        video_badges.append(f"🎬 {source}")
+
     codec = parsed.get("codec")
     if not codec:
         if re.search(r"\b(?:x265|h\.?265|hevc)\b", fname, re.IGNORECASE):
             codec = "HEVC"
         elif re.search(r"\b(?:x264|h\.?264|avc)\b", fname, re.IGNORECASE):
-            codec = "x264"
-    if codec:
-        visual_badges.append(f"🎥 {codec}")
+            codec = "AVC"
+        elif re.search(r"\bav1\b", fname, re.IGNORECASE):
+            codec = "AV1"
 
     bit_depth = parsed.get("bitDepth")
     if not bit_depth and re.search(r"\b10[- ]?bit\b", fname, re.IGNORECASE):
-        bit_depth = "10"
-    if bit_depth:
-        visual_badges.append(f"🌈 {bit_depth}bit")
+        bit_depth = "10-Bit"
+    elif bit_depth:
+        bit_depth = f"{bit_depth}-Bit"
 
-    # HDR / Dolby Vision / REMUX / IMAX
-    if re.search(r"\b(?:dolby\s*vision|dovi|\bdv\b)\b", fname, re.IGNORECASE):
-        visual_badges.append("📺 DV")
-    if re.search(r"\bhdr10\+\b", fname, re.IGNORECASE):
-        visual_badges.append("📺 HDR10+")
-    elif re.search(r"\bhdr(?:10)?\b", fname, re.IGNORECASE):
-        visual_badges.append("📺 HDR")
+    if codec and bit_depth:
+        video_badges.append(f"🎥 {codec} {bit_depth}")
+    elif codec:
+        video_badges.append(f"🎥 {codec}")
+    elif bit_depth:
+        video_badges.append(f"🎥 {bit_depth}")
 
-    if re.search(r"\bremux\b", fname, re.IGNORECASE):
-        visual_badges.append("💎 REMUX")
-    if re.search(r"\bimax\b", fname, re.IGNORECASE):
-        visual_badges.append("🎬 IMAX")
+    if hdr_tags:
+        video_badges.append(f"🌟 {' • '.join(hdr_tags)}")
 
-    # Audio channels & formats
+    # 3. Audio & Subtitles
+    audio_sub_badges = []
     audio_parts = []
     if re.search(r"\b(?:dolby\s*atmos|atmos)\b", fname, re.IGNORECASE):
         audio_parts.append("Dolby Atmos")
+        header_badges.append("🔊 Atmos")
     elif re.search(r"\b(?:ddp|dd\+|eac3|dolby\s*digital\s*plus)\s*5\.1\b", fname, re.IGNORECASE):
-        audio_parts.append("DD+ 5.1")
+        audio_parts.append("DDP 5.1")
+        header_badges.append("🔊 DDP 5.1")
     elif re.search(r"\b(?:dd|ac3|dolby\s*digital)\s*5\.1\b", fname, re.IGNORECASE):
         audio_parts.append("DD 5.1")
     elif re.search(r"\b(?:dts[- ]?hd(?:\s*ma)?)\b", fname, re.IGNORECASE):
         audio_parts.append("DTS-HD MA")
+        header_badges.append("🔊 DTS-HD")
     elif re.search(r"\bdts\b", fname, re.IGNORECASE):
         audio_parts.append("DTS")
     elif re.search(r"\btruehd\b", fname, re.IGNORECASE):
         audio_parts.append("TrueHD")
-    elif re.search(r"\b5\.1\b", fname, re.IGNORECASE):
-        audio_parts.append("5.1")
     elif re.search(r"\b7\.1\b", fname, re.IGNORECASE):
         audio_parts.append("7.1")
+    elif re.search(r"\b5\.1\b", fname, re.IGNORECASE):
+        audio_parts.append("5.1")
     elif parsed.get("audio"):
         audio_parts.append(str(parsed.get("audio")))
 
     if audio_parts:
-        audio_sub_badges.append(f"🔊 {' '.join(audio_parts)}")
+        audio_sub_badges.append(f"🔊 {' • '.join(audio_parts)}")
 
     # Languages
     is_dual = bool(re.search(r"\b(?:dual\s*audio|dual)\b", fname, re.IGNORECASE))
@@ -393,17 +449,23 @@ def _extract_stream_badges(filename: str, parsed: dict) -> tuple[list[str], list
             found_langs.append(label)
 
     if found_langs:
-        lang_str = " + ".join(found_langs)
+        lang_str = " • ".join(found_langs)
         if is_dual:
-            audio_sub_badges.append(f"🎧 Dual Audio [{lang_str}]")
+            audio_sub_badges.append(f"🌐 Dual Audio [{lang_str}]")
+            header_badges.append("🌐 Dual")
         elif is_multi:
-            audio_sub_badges.append(f"🎧 Multi Audio [{lang_str}]")
+            audio_sub_badges.append(f"🌐 Multi Audio [{lang_str}]")
+            header_badges.append("🌐 Multi")
         else:
-            audio_sub_badges.append(f"🎧 [{lang_str}]")
+            audio_sub_badges.append(f"🌐 {lang_str}")
+            if len(found_langs) == 1:
+                header_badges.append(f"🌐 {found_langs[0]}")
     elif is_dual:
-        audio_sub_badges.append("🎧 Dual Audio")
+        audio_sub_badges.append("🌐 Dual Audio")
+        header_badges.append("🌐 Dual")
     elif is_multi:
-        audio_sub_badges.append("🎧 Multi Audio")
+        audio_sub_badges.append("🌐 Multi Audio")
+        header_badges.append("🌐 Multi")
 
     # Subtitles
     if re.search(r"\b(?:esub|esubs|english\s*sub(?:title)?s?)\b", fname, re.IGNORECASE):
@@ -413,30 +475,53 @@ def _extract_stream_badges(filename: str, parsed: dict) -> tuple[list[str], list
     elif re.search(r"\bsub(?:title)?s?\b", fname, re.IGNORECASE):
         audio_sub_badges.append("📝 Subs")
 
-    return visual_badges, audio_sub_badges
+    return res_badge, header_badges, video_badges, audio_sub_badges
 
 
-#----- Build a Stremio stream display name/title from a filename
+#----- Build a Stremio stream display name/title with premium pill badges and dividers
 def format_stream_details(filename: str, quality: str, size: str, is_split: bool = False) -> tuple[str, str]:
-    size_emoji = "📦" if is_split else "💾"
     try:
         parsed = PTN.parse(filename) or {}
     except Exception:
         parsed = {}
 
-    resolution = parsed.get("resolution", quality)
-    quality_type = parsed.get("quality", "")
-    stream_name = f"Telegram {resolution} {quality_type}".strip()
+    res_badge, header_badges, video_badges, audio_sub_badges = _extract_stream_badges(filename, parsed)
 
-    visual_badges, audio_sub_badges = _extract_stream_badges(filename, parsed)
+    # Stream Name (Top Badge on Stream Card)
+    res_icon = "💎" if "4K" in res_badge else ("⚡" if "1080p" in res_badge else "✨")
+    primary_badge = f"{res_icon} {res_badge}"
+    name_elements = [primary_badge] + header_badges[:3]
+    stream_name = " ┃ ".join(name_elements)
 
-    line1 = f"📁 {filename}"
-    line2_parts = [f"{size_emoji} {size}"] + visual_badges
-    line2 = " · ".join(line2_parts)
+    # Stream Title (Detailed Multi-line Box)
+    size_badge = f"📦 {size}" if is_split else f"💾 {size}"
+    
+    title_str = parsed.get("title")
+    year_str = parsed.get("year")
+    season = parsed.get("season")
+    episodes = parsed.get("episodes")
+
+    if title_str:
+        clean_header = f"🎬 {str(title_str).title()}"
+        if year_str:
+            clean_header += f" ({year_str})"
+        if season is not None and episodes:
+            ep_str = f"S{season:02d}E{episodes[0]:02d}" if isinstance(episodes, list) else f"S{season:02d}E{episodes}"
+            clean_header += f" • {ep_str}"
+        line1 = clean_header
+    else:
+        line1 = f"📁 {filename}"
+
+    line2_parts = [size_badge] + video_badges
+    line2 = "  ┃  ".join(line2_parts)
 
     stream_title_parts = [line1, line2]
     if audio_sub_badges:
-        stream_title_parts.append(" · ".join(audio_sub_badges))
+        line3 = "  ┃  ".join(audio_sub_badges)
+        stream_title_parts.append(line3)
+
+    if is_split:
+        stream_title_parts.append("📦 Split Telegram Parts (Auto-Merged)")
 
     stream_title = "\n".join(stream_title_parts)
     return (stream_name, stream_title)
@@ -960,9 +1045,10 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
     streams = []
     for r in global_results:
         is_split = bool(r.get("is_split"))
-        _, stream_title = format_stream_details(r["title"], r["quality"], r["size"], is_split=is_split)
-        stream_name = f"🌐 GLOBAL {r['quality']}"
-        stream_title = f"{stream_title}\n📡 {r['source_chat']}"
+        stream_name, stream_title = format_stream_details(r["title"], r["quality"], r["size"], is_split=is_split)
+        stream_name = f"🌐 Global ┃ {stream_name}"
+        if r.get("source_chat"):
+            stream_title = f"{stream_title}\n📡 Source: {r['source_chat']}"
         if is_split:
             kind = "zip parts" if r.get("is_zip") else "parts"
             stream_title += f" · 📦 {r.get('part_count', 0)} {kind}"
