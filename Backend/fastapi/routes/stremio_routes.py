@@ -467,6 +467,96 @@ def get_resolution_priority(stream_name: str) -> int:
     return 1
 
 
+def get_stream_quality_score(stream: dict) -> tuple:
+    name = (stream.get("name") or "").lower()
+    title = (stream.get("title") or "").lower()
+    size_bytes = int(stream.get("size_bytes") or 0)
+    full_text = f"{name} {title}"
+
+    # Base resolution score
+    res_score = 1
+    if "2160p" in full_text or "4k" in full_text or "uhd" in full_text:
+        res_score = 21600
+    elif "1080p" in full_text or "fhd" in full_text:
+        res_score = 10800
+    elif "720p" in full_text or "hd" in full_text:
+        res_score = 7200
+    elif "480p" in full_text or "sd" in full_text:
+        res_score = 4800
+    elif "360p" in full_text:
+        res_score = 3600
+
+    # Deprioritize CAM / TeleSync / PreDVD
+    if any(w in full_text for w in ("cam", "telesync", "hdts", "predvd", "camrip", "hdcam")):
+        res_score = 100
+
+    # Codec & HDR Bonuses
+    enhancement_score = 0
+    if "dolby vision" in full_text or "dv" in full_text or "dovi" in full_text:
+        enhancement_score += 500
+    if "hdr10+" in full_text or "hdr10" in full_text or "hdr" in full_text:
+        enhancement_score += 300
+    if "remux" in full_text or "bluray" in full_text:
+        enhancement_score += 200
+    if "hevc" in full_text or "x265" in full_text or "h.265" in full_text or "10-bit" in full_text or "10bit" in full_text or "av1" in full_text:
+        enhancement_score += 150
+    if "web-dl" in full_text or "webrip" in full_text:
+        enhancement_score += 100
+
+    # Audio Bonuses
+    if "atmos" in full_text:
+        enhancement_score += 120
+    if "7.1" in full_text or "truehd" in full_text:
+        enhancement_score += 80
+    if "5.1" in full_text or "ddp" in full_text or "dd+" in full_text or "dts" in full_text:
+        enhancement_score += 50
+
+    return (res_score + enhancement_score, size_bytes)
+
+
+def consolidate_and_sort_streams(streams: list, ascending: bool = False, is_combined: bool = False) -> list:
+    if not streams:
+        return []
+
+    # 1. Deduplicate identical releases across channels (same resolution & similar size)
+    seen_fingerprints = set()
+    unique_streams = []
+
+    for s in streams:
+        res = get_resolution_priority(s.get("name", ""))
+        size = s.get("size_bytes", 0)
+        size_bucket = round(size / (10 * 1024 * 1024)) if size > 0 else 0
+        is_proxy = " (proxy)" in s.get("name", "").lower()
+        is_direct = " (direct)" in s.get("name", "").lower()
+
+        fingerprint = (res, size_bucket, is_proxy, is_direct)
+        if fingerprint in seen_fingerprints and size > 0:
+            continue
+        seen_fingerprints.add(fingerprint)
+        unique_streams.append(s)
+
+    # 2. Comprehensive Quality & Bitrate Sorting
+    if is_combined:
+        unique_streams.sort(key=lambda s: s.get("episode_start", 0))
+        unique_streams.sort(key=lambda s: s.get("name_key", ""))
+        unique_streams.sort(key=lambda s: get_stream_quality_score(s), reverse=not ascending)
+    else:
+        unique_streams.sort(key=lambda s: get_stream_quality_score(s), reverse=not ascending)
+
+    # 3. Clean numbering for distinct streams with identical display labels
+    name_count = {}
+    for s in unique_streams:
+        name_count[s["name"]] = name_count.get(s["name"], 0) + 1
+
+    seen_names = {}
+    for s in unique_streams:
+        if name_count[s["name"]] > 1:
+            seen_names[s["name"]] = seen_names.get(s["name"], 0) + 1
+            s["name"] = f"{s['name']} #{seen_names[s['name']]}"
+
+    return unique_streams
+
+
 #----- Canonical quality label used by per-token quality filtering
 def stream_res_label(stream_name: str) -> str:
     return {2160: "4K", 1080: "1080p", 720: "720p", 480: "480p", 360: "360p"}.get(
@@ -1198,24 +1288,7 @@ async def get_streams(
         }
 
     ascending = config.get("quality_sort") == "asc"
-    if is_combined:
-        streams.sort(key=lambda s: s.get("episode_start", 0))
-        streams.sort(key=lambda s: s.get("name_key", ""))
-        streams.sort(key=lambda s: get_resolution_priority(s.get("name", "")), reverse=not ascending)
-    else:
-        streams.sort(
-            key=lambda s: (get_resolution_priority(s.get("name", "")), s.get("size_bytes", 0)),
-            reverse=not ascending
-        )
-    name_count: dict = {}
-    for s in streams:
-        name_count[s["name"]] = name_count.get(s["name"], 0) + 1
-
-    seen: dict = {}
-    for s in streams:
-        if name_count[s["name"]] > 1:
-            seen[s["name"]] = seen.get(s["name"], 0) + 1
-            s["name"] = f"{s['name']} ({seen[s['name']]})"
+    streams = consolidate_and_sort_streams(streams, ascending=ascending, is_combined=is_combined)
     return {"streams": streams}
 
 #----- Configure/install landing page rendered as HTML for a token
