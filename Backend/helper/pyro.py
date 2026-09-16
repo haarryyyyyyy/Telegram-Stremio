@@ -37,17 +37,17 @@ _DECORATION_PATTERN = re.compile(
 
 #----- Telegram / social-media channel tag patterns and domains
 _CHANNEL_TAG_PATTERN = re.compile(
-    r"_@[A-Za-z0-9_]+_|@[A-Za-z0-9_]+_|[\[\]\s@]*@[^.\s\[\]]+[\]\[\s@]*|(?:t\.me|telegram\.me)[/_][A-Za-z0-9_]+",
+    r"(?:join\s*|join\s*:?\s*)?@[\w_]+|_[A-Za-z0-9_]+_|[\[({【][\s@]*[^\])}】]*@[\w_.]+[\])}】]|(?:https?:\/\/)?(?:t\.me|telegram\.me|telegram\.dog)[/_][A-Za-z0-9_+]+",
     re.IGNORECASE,
 )
 
 _DOMAIN_TAG_PATTERN = re.compile(
-    r"\b(?:www\.)?[A-Za-z0-9_-]+\.(?:com|net|org|in|vip|me|to|is|cc|mov|tv|site|xyz|online|club|top|tech|info|co|biz|live|pro|click|download)\b",
+    r"\b(?:www\.)?[A-Za-z0-9_-]+\.(?:com|net|org|in|vip|me|to|is|cc|mov|tv|site|xyz|online|club|top|tech|info|co|biz|live|pro|click|download|baby|bar|wtf|fun|space|monster|pw|icu|best|buzz|uno|art|run)\b",
     re.IGNORECASE,
 )
 
 _LEADING_CHANNEL_PREFIX = re.compile(
-    r"^(?:[\[({【][^\])}】]{1,35}[\])}】]\s*|[\w.-]{2,25}\s*[-:|~•]\s*(?=[A-Za-z0-9]))",
+    r"^(?:[\[({【][^\])}】]{1,40}[\])}】]\s*|[\w.-]{2,30}\s*[-:|~•]\s*(?=[A-Za-z0-9]))+",
     re.IGNORECASE,
 )
 
@@ -146,7 +146,13 @@ def clean_filename(filename: str) -> str:
     #----- 8 – Remove codec / source tags that clutter the title region
     filename = _CODEC_TAG_PATTERN.sub(" ", filename)
 
-    #----- 9 – Collapse multiple spaces; remove space before extension dot
+    #----- 9 – Clean bracketed uploader tags containing known team names or websites
+    filename = re.sub(r"(?i)[\[({【][^\])}】]*(?:movies|telly|cinema|hub|flim|tamil|telugu|hindi|mkv|mp4|team|rockers|blasters|link|official)[^\])}】]*[\])}】]", " ", filename)
+
+    #----- 10 – Strip leading separators and dangling punctuation
+    filename = re.sub(r"^[\s\-:|~•_]+", "", filename).strip()
+
+    #----- 11 – Collapse multiple spaces; remove space before extension dot
     filename = re.sub(r"\s+", " ", filename).strip().replace(" .", ".")
 
     return filename if filename else "unknown_file"

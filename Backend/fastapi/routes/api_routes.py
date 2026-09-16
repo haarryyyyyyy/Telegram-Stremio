@@ -19,6 +19,7 @@ from Backend import StartTime, __version__, db
 from Backend.fastapi.routes.stream_routes import _streamer_by_client
 from Backend.fastapi.routes.stremio_routes import invalidate_membership_cache
 from Backend.helper.analytics import get_activity_overview
+from Backend.helper.announcer import announce_new_media
 from Backend.helper.auto_catalog import (
     get_auto_catalog_settings,
     get_auto_catalog_sync_status,
@@ -597,25 +598,32 @@ async def get_dead_links_api() -> dict:
         return {"status": "error", "message": str(e)}
 
 
-#----- Recent stream analytics
-async def get_stream_analytics_api() -> dict:
+#----- Top Viewers / Stream stats
+async def get_top_viewers_api() -> dict:
     try:
-        data = await db.get_stream_analytics(limit=200)
-        return {"status": "success", "data": data}
+        viewers = await db.get_top_viewers(limit=50)
+        return {"status": "success", "data": {"top_viewers": viewers}}
     except Exception as e:
-        LOGGER.error(f"Stream analytics API error: {e}")
-        return {"status": "error", "message": str(e)}
+        LOGGER.error(f"Top viewers API error: {e}")
+        return {"status": "error", "message": str(e), "data": {"top_viewers": []}}
 
 
-#----- Purge all stream analytics records
+async def get_stream_analytics_api() -> dict:
+    return await get_top_viewers_api()
+
+
+#----- Purge legacy stream analytics records / drop collection
 async def clear_stream_analytics_api() -> dict:
     try:
-        result = await db.dbs["tracking"]["stream_analytics"].delete_many({})
-        LOGGER.info(f"Admin cleared stream analytics ({result.deleted_count} records deleted).")
-
+        try:
+            if "stream_analytics" in await db.dbs["tracking"].list_collection_names():
+                await db.dbs["tracking"]["stream_analytics"].drop()
+        except Exception:
+            pass
+        LOGGER.info("Admin purged legacy stream analytics collection.")
         return {
             "status": "success",
-            "message": f"{result.deleted_count} analytics records cleared."
+            "message": "Stream analytics collection dropped and storage freed."
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -1364,6 +1372,10 @@ async def manual_add_media_api(payload: dict) -> dict:
     if result_tmdb_id and result_tmdb_id > 0:
         try:
             start_single_media_catalog_sync(db, tmdb_id=result_tmdb_id, media_type=media_type)
+        except Exception:
+            pass
+        try:
+            announce_new_media(dict(base))
         except Exception:
             pass
 

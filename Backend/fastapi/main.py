@@ -63,6 +63,7 @@ from Backend.fastapi.routes.api_routes import (
     request_search_api,
     request_submit_api,
     get_stream_analytics_api,
+    get_top_viewers_api,
     get_subscription_plans_api,
     get_settings_api,
     get_logs_api,
@@ -378,6 +379,10 @@ async def get_dead_links(_: bool = Depends(require_auth)):
 @app.get("/api/admin/stream-analytics")
 async def get_stream_analytics(_: bool = Depends(require_auth)):
     return await get_stream_analytics_api()
+
+@app.get("/api/admin/top-viewers")
+async def get_top_viewers(_: bool = Depends(require_auth)):
+    return await get_top_viewers_api()
 
 @app.get("/api/admin/user-activity")
 async def get_user_activity(page: int = 1, per_page: int = 5, _: bool = Depends(require_auth)):

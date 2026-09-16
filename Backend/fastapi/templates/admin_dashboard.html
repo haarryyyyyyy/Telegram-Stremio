@@ -425,33 +425,10 @@
     <div class="glass-card rounded-3xl overflow-hidden mb-6 sm:mb-8">
         <div class="px-5 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-hairline bg-surface flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-                <h2 class="section-title text-xl sm:text-2xl">Streaming Insights</h2>
-                <p class="muted text-sm mt-1">Most-watched titles, heaviest viewers and daily activity.</p>
+                <h2 class="section-title text-xl sm:text-2xl">Top Viewers</h2>
+                <p class="muted text-sm mt-1">Most active streaming users ranked by total plays.</p>
             </div>
-            <span class="pill">Overview</span>
-        </div>
-        <div class="p-4 sm:p-5 lg:p-6">
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                <div class="ins-stat"><div class="ins-v" id="ins-total-streams">—</div><div class="ins-l">Total Streams</div></div>
-                <div class="ins-stat"><div class="ins-v" id="ins-total-data">—</div><div class="ins-l">Data Transferred</div></div>
-                <div class="ins-stat"><div class="ins-v" id="ins-avg-speed">—</div><div class="ins-l">Avg Speed</div></div>
-                <div class="ins-stat"><div class="ins-v" id="ins-active-users">—</div><div class="ins-l">Active Viewers</div></div>
-            </div>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div class="ins-col"><h3 class="ins-h">🔥 Top Titles</h3><div id="ins-top-titles" class="ins-list"></div></div>
-                <div class="ins-col"><h3 class="ins-h">👤 Top Viewers</h3><div id="ins-top-users" class="ins-list"></div></div>
-                <div class="ins-col"><h3 class="ins-h">📅 Last 14 Days</h3><div id="ins-per-day" class="ins-list"></div></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="glass-card rounded-3xl overflow-hidden mb-6 sm:mb-8">
-        <div class="px-5 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-hairline bg-surface flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-                <h2 class="section-title text-xl sm:text-2xl">Recent Stream Analytics</h2>
-                <p class="muted text-sm mt-1">Data transferred, speed, duration, and status for recent streams.</p>
-            </div>
-            <span class="pill">Recent activity</span>
+            <span class="pill">Leaderboard</span>
         </div>
 
         <div class="p-4 sm:p-5 lg:p-6">
@@ -460,20 +437,19 @@
                     <table class="table-ui">
                         <thead>
                             <tr>
-                                <th>Stream ID</th>
-                                <th>Title</th>
-                                <th class="text-center">Bot (DC)</th>
-                                <th class="text-right">Transferred</th>
-                                <th class="text-right">Avg / Peak</th>
-                                <th class="text-center">Duration</th>
-                                <th class="text-center">Status</th>
-                                <th class="text-right">Time</th>
+                                <th class="text-center w-12">#</th>
+                                <th>Viewer</th>
+                                <th class="text-center">Plays</th>
+                                <th>App / Device</th>
+                                <th>Location</th>
+                                <th>Last Watched</th>
+                                <th class="text-right">Last Active</th>
                             </tr>
                         </thead>
-                        <tbody id="analytics-tbody">
+                        <tbody id="top-viewers-tbody">
                             <tr>
-                                <td colspan="8" class="empty-state">
-                                    <i class="fas fa-spinner fa-spin mr-2 text-primary"></i> Loading analytics...
+                                <td colspan="7" class="empty-state">
+                                    <i class="fas fa-spinner fa-spin mr-2 text-primary"></i> Loading top viewers...
                                 </td>
                             </tr>
                         </tbody>
@@ -481,9 +457,9 @@
                 </div>
             </div>
 
-            <div id="analytics-mobile" class="mobile-list scroll-cap">
+            <div id="top-viewers-mobile" class="mobile-list scroll-cap">
                 <div class="empty-state">
-                    <i class="fas fa-spinner fa-spin mr-2 text-primary"></i> Loading analytics...
+                    <i class="fas fa-spinner fa-spin mr-2 text-primary"></i> Loading top viewers...
                 </div>
             </div>
         </div>
@@ -623,126 +599,98 @@
         } catch (e) { /* ignore transient errors */ }
     }
 
-    function fmtBytes(bytes) {
-        let b = Number(bytes || 0);
-        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        let i = 0;
-        while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
-        return b.toFixed(b >= 10 || i === 0 ? 0 : 1) + ' ' + units[i];
-    }
-
-    function insText(id, val) {
-        const el = document.getElementById(id);
-        if (el) el.textContent = val;
-    }
-
-    function insRow(name, val, frac) {
-        const pct = Math.max(4, Math.round((frac || 0) * 100));
-        return `<div>
-            <div class="ins-row"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="val">${escapeHtml(val)}</span></div>
-            <div class="ins-bar" style="width:${pct}%"></div>
-        </div>`;
-    }
-
-    function renderInsights(d) {
-        const s = d.summary || {};
-        insText('ins-total-streams', s.total_streams ?? 0);
-        insText('ins-total-data', fmtBytes(s.total_bytes));
-        insText('ins-avg-speed', (Number(s.avg_speed || 0)).toFixed(1) + ' MB/s');
-        insText('ins-active-users', s.active_users ?? 0);
-
-        const titles = d.top_titles || [];
-        const maxT = Math.max(1, ...titles.map(t => t.streams || 0));
-        document.getElementById('ins-top-titles').innerHTML = titles.length
-            ? titles.map(t => insRow(t.title || '—', `${t.streams} plays · ${fmtBytes(t.total_bytes)}`, t.streams / maxT)).join('')
-            : '<div class="ins-empty">No data yet.</div>';
-
-        const users = d.top_users || [];
-        const maxU = Math.max(1, ...users.map(u => u.total_bytes || 0));
-        document.getElementById('ins-top-users').innerHTML = users.length
-            ? users.map(u => insRow(u.user || '—', `${fmtBytes(u.total_bytes)} · ${u.streams} streams`, u.total_bytes / maxU)).join('')
-            : '<div class="ins-empty">No data yet.</div>';
-
-        const days = d.per_day || [];
-        const maxD = Math.max(1, ...days.map(x => x.streams || 0));
-        document.getElementById('ins-per-day').innerHTML = days.length
-            ? days.map(x => insRow(x.date, `${x.streams} · ${fmtBytes(x.total_bytes)}`, x.streams / maxD)).join('')
-            : '<div class="ins-empty">No data yet.</div>';
-    }
-
-    async function fetchAnalytics() {
+    async function fetchTopViewers() {
         try {
             const res = await fetch('/api/admin/stream-analytics');
-            const tbody = document.getElementById('analytics-tbody');
-            const mobile = document.getElementById('analytics-mobile');
+            const tbody = document.getElementById('top-viewers-tbody');
+            const mobile = document.getElementById('top-viewers-mobile');
 
             if (!res.ok) {
-                showToast('Failed to load stream analytics.', 'error', 'Load Error');
+                showToast('Failed to load top viewers.', 'error', 'Load Error');
                 return;
             }
 
             const data = await res.json();
-            renderInsights(data.data || {});
-            const streams = data?.data?.recent || [];
+            const viewers = data?.data?.top_viewers || [];
 
-            if (!streams.length) {
-                tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No recent streams recorded.</td></tr>';
-                mobile.innerHTML = '<div class="empty-state">No recent streams recorded.</div>';
+            if (!viewers.length) {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No active viewers recorded yet.</td></tr>';
+                if (mobile) mobile.innerHTML = '<div class="empty-state">No active viewers recorded yet.</div>';
                 return;
             }
 
             let tableHtml = '';
             let mobileHtml = '';
 
-            streams.forEach(s => {
-                const avg = Number(s.avg_mbps ?? 0);
-                const peak = Number(s.peak_mbps ?? 0);
-                const bytesStr = ((Number(s.total_bytes ?? 0)) / (1024 * 1024)).toFixed(1) + ' MB';
-                const timeStr = s.logged_at
-                    ? new Date(s.logged_at).toLocaleString([], {
-                        year: 'numeric', month: 'short', day: 'numeric',
-                        hour: '2-digit', minute: '2-digit', second: '2-digit'
+            viewers.forEach((v, index) => {
+                const rank = index + 1;
+                let rankBadge = `<span class="font-bold text-xs px-2 py-0.5 rounded-full bg-surface border border-hairline">${rank}</span>`;
+                if (rank === 1) rankBadge = `<span class="text-lg">🥇</span>`;
+                else if (rank === 2) rankBadge = `<span class="text-lg">🥈</span>`;
+                else if (rank === 3) rankBadge = `<span class="text-lg">🥉</span>`;
+
+                const name = v.name || 'Unknown';
+                const streams = Number(v.streams || 0);
+                const app = v.app || 'Stremio';
+                const device = v.device ? ` · ${v.device}` : '';
+                const loc = v.country ? `${v.country_code ? v.country_code + ' - ' : ''}${v.country}` : (v.ip || '—');
+                const lastTitle = v.last_title || '—';
+                const timeStr = v.last_active
+                    ? new Date(v.last_active).toLocaleString([], {
+                        month: 'short', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
                       })
                     : '—';
-                const durationStr = s.duration_sec ? `${Number(s.duration_sec).toFixed(1)}s` : '—';
-                const titleStr = s.title || s.meta?.title || '—';
-                const status = s.status || 'unknown';
 
                 tableHtml += `
                     <tr>
-                        <td><span class="stream-id muted font-mono text-xs" title="${escapeHtml(s.stream_id)}">${escapeHtml(s.stream_id)}</span></td>
-                        <td><div class="title-cell font-semibold" title="${escapeHtml(titleStr)}">${escapeHtml(titleStr)}</div></td>
-                        <td class="text-center">Bot ${Number(s.client_index ?? 0) + 1} <span class="muted text-xs ml-1">(DC${escapeHtml(s.dc_id)})</span></td>
-                        <td class="text-right font-semibold">${bytesStr}</td>
-                        <td class="text-right font-semibold">${avg.toFixed(1)} <span class="muted">/ ${peak.toFixed(1)} MB/s</span></td>
-                        <td class="text-center muted">${durationStr}</td>
-                        <td class="text-center"><span class="${getStatusBadge(status)}">${escapeHtml(status)}</span></td>
+                        <td class="text-center">${rankBadge}</td>
+                        <td>
+                            <div class="font-semibold text-text flex items-center gap-2">
+                                <i class="fas fa-user-circle text-primary opacity-80"></i>
+                                <span>${escapeHtml(name)}</span>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
+                                ${streams} ${streams === 1 ? 'play' : 'plays'}
+                            </span>
+                        </td>
+                        <td><span class="muted text-xs">${escapeHtml(app)}${escapeHtml(device)}</span></td>
+                        <td><span class="muted text-xs">${escapeHtml(loc)}</span></td>
+                        <td><div class="title-cell text-xs font-medium" title="${escapeHtml(lastTitle)}">${escapeHtml(lastTitle)}</div></td>
                         <td class="text-right muted text-xs">${timeStr}</td>
                     </tr>
                 `;
 
                 mobileHtml += `
-                    <div class="mobile-card analytics-mobile-card">
+                    <div class="mobile-card">
                         <div class="flex items-center justify-between gap-2">
-                            <div class="font-semibold text-text truncate">${escapeHtml(titleStr)}</div>
-                            <span class="${getStatusBadge(status)}">${escapeHtml(status)}</span>
+                            <div class="flex items-center gap-2 font-semibold text-text truncate">
+                                <span>${rankBadge}</span>
+                                <span>${escapeHtml(name)}</span>
+                            </div>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
+                                ${streams} plays
+                            </span>
                         </div>
-                        <div class="flex flex-wrap gap-x-3 gap-y-1 muted text-xs mt-2">
-                            <span>Bot ${Number(s.client_index ?? 0) + 1} · DC${escapeHtml(s.dc_id)}</span>
-                            <span class="font-semibold text-text">${bytesStr}</span>
-                            <span>${avg.toFixed(1)}/${peak.toFixed(1)} MB/s</span>
-                            <span>${durationStr}</span>
+                        <div class="muted text-xs mt-2 truncate">
+                            <i class="fas fa-play mr-1 opacity-70"></i> ${escapeHtml(lastTitle)}
+                        </div>
+                        <div class="flex flex-wrap gap-x-3 gap-y-1 muted text-xs mt-2 pt-2 border-t border-hairline">
+                            <span>${escapeHtml(app)}${escapeHtml(device)}</span>
+                            <span>${escapeHtml(loc)}</span>
                             <span>${timeStr}</span>
                         </div>
                     </div>
                 `;
             });
 
-            tbody.innerHTML = tableHtml;
-            mobile.innerHTML = mobileHtml;
+            if (tbody) tbody.innerHTML = tableHtml;
+            if (mobile) mobile.innerHTML = mobileHtml;
         } catch (err) {
             console.error(err);
-            showToast('Failed to load stream analytics.', 'error', 'Load Error');
+            showToast('Failed to load top viewers.', 'error', 'Load Error');
         }
     }
 
@@ -852,14 +800,14 @@
     }
 
     async function clearAnalytics() {
-        if (!confirm("Are you sure you want to clear all stream analytics history? This cannot be undone.")) return;
+        if (!confirm("Are you sure you want to purge legacy analytics storage? This cannot be undone.")) return;
 
         try {
             const res = await fetch('/api/admin/clear-analytics', { method: 'POST' });
             if (res.ok) {
                 const data = await res.json();
-                showToast(data.message || 'Analytics cleared successfully.', 'success', 'Analytics Cleared');
-                fetchAnalytics();
+                showToast(data.message || 'Analytics storage cleared successfully.', 'success', 'Storage Cleared');
+                fetchTopViewers();
             } else {
                 const err = await res.json().catch(() => ({}));
                 showToast(err.detail || 'Failed to clear analytics.', 'error', 'Request Failed');
@@ -895,11 +843,11 @@
     document.addEventListener('DOMContentLoaded', () => {
         fetchStats();
         fetchHealthReport();
-        fetchAnalytics();
+        fetchTopViewers();
         fetchDeadLinks();
         setInterval(fetchStats, 5000);          // realtime bot load
         setInterval(fetchHealthReport, 20000);  // infra checks (cached server-side)
-        setInterval(fetchAnalytics, 15000);
+        setInterval(fetchTopViewers, 15000);
     });
 </script>
 {% endblock %}

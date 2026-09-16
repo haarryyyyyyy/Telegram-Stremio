@@ -15,45 +15,56 @@ from Backend.logger import LOGGER
 
 
 def title_search_candidates(title: str) -> list[str]:
-    """Generate potential search titles by stripping channel/site prefixes/suffixes.
-
-    Examples:
-      "movies4u - rush" -> ["movies4u - rush", "rush"]
-      "movies4u : Rush" -> ["movies4u : Rush", "Rush"]
-      "[movies4u] Rush" -> ["[movies4u] Rush", "Rush"]
-      "movies4u.com - Rush" -> ["movies4u.com - Rush", "Rush"]
-      "@movies4u Rush" -> ["@movies4u Rush", "Rush"]
-      "Rush" -> ["Rush"]
+    """Generate clean candidate titles for metadata searching by stripping channel prefixes,
+    uploader tags, website domains, and media noise.
     """
     if not title:
         return []
 
-    candidates = []
-    cleaned_orig = title.strip()
-    if cleaned_orig:
-        candidates.append(cleaned_orig)
+    raw = title.strip()
+    candidates = [raw]
 
-    # 1. Strip bracketed prefix: [Tag] Title or (Tag) Title or {Tag} Title or 【Tag】 Title
-    unbracketed = re.sub(r"^[\[({【][^\])}】]+[\])}】]\s*", "", cleaned_orig).strip()
-    if unbracketed and unbracketed != cleaned_orig and len(unbracketed) >= 2:
-        candidates.append(unbracketed)
+    # Iteratively strip leading tags (brackets, @channel, t.me, domains, separators)
+    cleaned = raw
+    prev = None
+    while cleaned != prev and len(cleaned) >= 2:
+        prev = cleaned
+        # Bracketed prefix
+        cleaned = re.sub(r"^[\[({【][^\])}】]+[\])}】]\s*", "", cleaned).strip()
+        # @channel or t.me
+        cleaned = re.sub(r"^(?:join\s*|join\s*:?\s*)?(?:@|t\.me[/_]|telegram\.me[/_]|telegram\.dog[/_])[\w_.]+\s*[-:|~•]?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        # domain
+        cleaned = re.sub(r"^(?:www\.)?[A-Za-z0-9_-]+\.(?:com|net|org|in|vip|me|to|is|cc|mov|tv|site|xyz|online|club|top|tech|info|co|biz|live|pro|click|download|baby|bar|wtf|fun|space|monster|pw|icu|best|buzz|uno|art|run)\s*[-:|~•]?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        # leading separator
+        cleaned = re.sub(r"^[^\s\-:|~•]+\s*[-:|~•]\s*", "", cleaned).strip()
+        if cleaned and cleaned not in candidates and len(cleaned) >= 2:
+            candidates.append(cleaned)
 
-    # 2. Strip leading @channel, t.me/channel, or website domain prefixes
-    un_at = re.sub(r"^(?:@|t\.me[/_]|telegram\.me[/_])[\w_.]+\s*[-:|~•]?\s*", "", cleaned_orig, flags=re.IGNORECASE).strip()
-    if un_at and un_at != cleaned_orig and len(un_at) >= 2:
-        candidates.append(un_at)
+    # Also strip all bracketed tags anywhere in the string
+    un_all = re.sub(r"[\[({【][^\])}】]*[\])}】]", " ", raw).strip()
+    un_all = re.sub(r"\s+", " ", un_all).strip()
+    if un_all and un_all not in candidates and len(un_all) >= 2:
+        candidates.append(un_all)
 
-    un_domain = re.sub(r"^(?:www\.)?[A-Za-z0-9_-]+\.(?:com|net|org|in|vip|me|to|is|cc|mov|tv|site|xyz|online|club|top|tech|info|co|biz|live|pro|click|download)\s*[-:|~•]?\s*", "", cleaned_orig, flags=re.IGNORECASE).strip()
-    if un_domain and un_domain != cleaned_orig and len(un_domain) >= 2:
-        candidates.append(un_domain)
+    # Add dot/underscore to space variants
+    for c in list(candidates):
+        dot_spaced = re.sub(r"[._]+", " ", c).strip()
+        if dot_spaced and dot_spaced not in candidates:
+            candidates.append(dot_spaced)
 
-    # 3. Split on common separators: " - ", " : ", " | ", " _ ", " ~ ", " • "
-    sub_title = re.sub(r"^[^\s\-:|~•]+\s*[-:|~•]\s*", "", cleaned_orig).strip()
-    if sub_title and sub_title != cleaned_orig and len(sub_title) >= 2:
-        candidates.append(sub_title)
-        sub_unbracketed = re.sub(r"^[\[({【][^\])}】]+[\])}】]\s*", "", sub_title).strip()
-        if sub_unbracketed and sub_unbracketed != sub_title and len(sub_unbracketed) >= 2:
-            candidates.append(sub_unbracketed)
+    # Strip trailing noise tokens (audio, quality, codec, language)
+    noise_pattern = re.compile(
+        r"(?i)\b(?:dual\s*audio|multi\s*audio|multi\s*sub|esub|hindi|tamil|telugu|malayalam|kannada|english|"
+        r"korean|japanese|chinese|spanish|french|german|italian|bengali|marathi|punjabi|"
+        r"1080p|720p|480p|2160p|4k|uhd|hdrip|web-?dl|webrip|bluray|bdrip|brrip|hdtv|dvdrip|"
+        r"hevc|x264|x265|h264|h265|avc|aac|ddp?5\.1|dd5\.1|dts|truehd|atmos|10bit|8bit|hq)\b.*$",
+        re.IGNORECASE,
+    )
+    for c in list(candidates):
+        stripped = noise_pattern.sub("", c).strip()
+        stripped = re.sub(r"[\s._\-:|~•]+$", "", stripped).strip()
+        if stripped and len(stripped) >= 2 and stripped not in candidates:
+            candidates.append(stripped)
 
     # Deduplicate while preserving order
     seen = set()
@@ -100,24 +111,37 @@ async def resolve_movie(
     if not tmdb_id:
         for cand in candidates:
             hit = await tmdb.safe_search(cand, "movie", year)
+            if hit == "AMBIGUOUS":
+                LOGGER.warning(
+                    f"[MOVIE] Ambiguous TMDb movie match detected for '{cand}' (year={year}) -> forwarding to skip channel."
+                )
+                return None
             if hit:
                 tmdb_id = hit.id
                 matched_title = cand
                 break
+
     if tmdb_id:
         movie = await tmdb.details("movie", tmdb_id)
         if movie:
             LOGGER.info(f"[MOVIE] TMDB hit for '{matched_title}' (original='{title}', year={year})")
             return tmdb.build_movie_payload(movie, quality, encoded_string)
 
-    # 2) Cinemeta fallback
-    LOGGER.info(f"[MOVIE] TMDB miss for '{title}' -> Cinemeta")
+    # 2) Cinemeta / IMDb fallback search
+    LOGGER.info(f"[MOVIE] TMDB miss for '{title}' (year={year}) -> Cinemeta / IMDb search")
     if not imdb_id:
         for cand in candidates:
-            imdb_id = await cinemeta.safe_search(cand, "movie", year)
-            if imdb_id:
+            res_id = await cinemeta.safe_search(cand, "movie", year)
+            if res_id == "AMBIGUOUS":
+                LOGGER.warning(
+                    f"[MOVIE] Ambiguous Cinemeta/IMDb movie match detected for '{cand}' (year={year}) -> forwarding to skip channel."
+                )
+                return None
+            if res_id:
+                imdb_id = res_id
                 matched_title = cand
                 break
+
     if imdb_id:
         try:
             detail = await cinemeta.cached_detail(imdb_id, "movie")
@@ -125,6 +149,7 @@ async def resolve_movie(
                 for cand in candidates:
                     sim = title_similarity(cand, detail.get("title", ""))
                     if sim >= CINEMETA_THRESHOLD or explicit_imdb:
+                        LOGGER.info(f"[MOVIE] Cinemeta/IMDb hit for '{cand}' -> '{detail.get('title')}' [{imdb_id}]")
                         return cinemeta.build_movie_payload(detail, imdb_id, cand, quality, encoded_string)
                 LOGGER.info(
                     f"[MOVIE] Cinemeta title mismatch for '{title}': "
@@ -133,7 +158,7 @@ async def resolve_movie(
         except Exception as e:
             LOGGER.warning(f"Cinemeta movie fetch failed [{title}]: {e}")
 
-    LOGGER.info(f"[MOVIE] No metadata for '{title}' (year={year})")
+    LOGGER.info(f"[MOVIE] No metadata found for '{title}' (year={year})")
     return None
 
 

@@ -9,6 +9,7 @@ import httpx
 
 from Backend.helper.metadata.common import (
     ensure_media_ids,
+    normalize_title,
     CINEMETA_THRESHOLD,
     IMDB_CACHE,
     STRONG_MATCH,
@@ -149,7 +150,7 @@ async def get_season(imdb_id: str, season_id, episode_id) -> Dict[str, Any]:
 
 
 async def safe_search(title: str, type_: str, year: Optional[int] = None) -> str | None:
-    """Return best-matching IMDb id or None."""
+    """Return best-matching IMDb id, 'AMBIGUOUS', or None."""
     is_tv = type_ != "movie"
     search_year = None if is_tv else year
     cache_key = f"imdb::{type_}::{title}::{year}"
@@ -160,15 +161,13 @@ async def safe_search(title: str, type_: str, year: Optional[int] = None) -> str
         best_score = 0.0
         best_title = ""
         year_reliable = not is_tv
+        scored_candidates = []
 
         for query in query_variants:
             try:
                 results = await search_title_multi(query=query, type=type_, limit=8)
                 for r in results:
-                    # Cinemeta search rows are thin; still score primary + any alias-like fields
                     aliases = []
-                    for key in ("aka", "aliases", "alternateNames", "genres"):
-                        pass  # genres are not aliases
                     for key in ("aka", "aliases", "alternateNames", "name"):
                         val = r.get(key)
                         if not val or key == "name":
@@ -177,20 +176,42 @@ async def safe_search(title: str, type_: str, year: Optional[int] = None) -> str
                             aliases.extend(val)
                         else:
                             aliases.append(val)
+                    r_year = year_from_str(r.get("year", ""))
+                    r_title = r.get("title", "") or r.get("name", "")
                     score = score_candidate_aliases(
-                        title, year, r.get("title", "") or r.get("name", ""),
-                        year_from_str(r.get("year", "")),
+                        title, year, r_title,
+                        r_year,
                         aliases=aliases,
                         year_reliable=year_reliable, year_lower_bound=is_tv,
                     )
+                    r_id = r.get("id")
+                    if r_id:
+                        scored_candidates.append((score, r_id, r_title, r_year))
                     if score > best_score:
-                        best_score, best_id, best_title = score, r.get("id"), r.get("title", "")
+                        best_score, best_id, best_title = score, r_id, r_title
                     if not is_tv and best_score >= STRONG_MATCH:
                         break
             except Exception as e:
                 LOGGER.warning(f"Cinemeta search variant '{query}' [{type_}] failed: {e}")
             if not is_tv and best_score >= STRONG_MATCH:
                 break
+
+        # Ambiguity check for movies: multiple distinct IMDb candidates with same title and year
+        if not is_tv and len(scored_candidates) > 1:
+            scored_candidates.sort(key=lambda x: x[0], reverse=True)
+            top_candidates = [c for c in scored_candidates if c[0] >= CINEMETA_THRESHOLD]
+            if len(top_candidates) >= 2:
+                f_score, f_id, f_title, f_year = top_candidates[0]
+                for o_score, o_id, o_title, o_year in top_candidates[1:]:
+                    if o_id != f_id:
+                        same_year = bool(f_year and o_year and f_year == o_year)
+                        same_title = (normalize_title(f_title) == normalize_title(o_title))
+                        if same_year and same_title and abs(f_score - o_score) < 0.15:
+                            LOGGER.warning(
+                                f"[Cinemeta] Ambiguous movie match for '{title}': multiple distinct movies titled '{f_title}' "
+                                f"({f_year}) [IDs: {f_id}, {o_id}]."
+                            )
+                            return "AMBIGUOUS"
 
         if best_score >= CINEMETA_THRESHOLD and best_id:
             LOGGER.info(

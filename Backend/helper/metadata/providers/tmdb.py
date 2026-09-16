@@ -10,6 +10,7 @@ from Backend.helper.metadata.common import (
     ensure_media_ids,
     logo_from_imdb,
     parse_year_range,
+    normalize_title,
     ALT_TITLE_LOOKUPS,
     ALT_TITLES_CACHE,
     API_SEMAPHORE,
@@ -143,16 +144,33 @@ async def pick_best(results, query_title: str, query_year: Optional[int], media_
             aliases=[orig] if orig and orig != r_title else None,
             year_reliable=year_reliable, year_lower_bound=year_lower_bound,
         )
-        scored.append((score, item, r_year))
+        scored.append((score, item, r_year, r_title))
         if score > best_score:
             best_score, best_item = score, item
+
+    # Check for ambiguous movies: multiple candidate results sharing the exact same title & release year
+    if media_type == "movie" and len(scored) > 1:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_candidates = [s for s in scored if s[0] >= TMDB_THRESHOLD]
+        if len(top_candidates) >= 2:
+            first_score, first_item, first_year, first_title = top_candidates[0]
+            for other_score, other_item, other_year, other_title in top_candidates[1:]:
+                if getattr(other_item, "id", None) != getattr(first_item, "id", None):
+                    same_year = bool(first_year and other_year and first_year == other_year)
+                    same_title = (normalize_title(first_title) == normalize_title(other_title))
+                    if same_year and same_title and abs(first_score - other_score) < 0.15:
+                        LOGGER.warning(
+                            f"[TMDB] Ambiguous movie match for '{query_title}': multiple distinct movies titled '{first_title}' "
+                            f"({first_year}) [IDs: {getattr(first_item, 'id')}, {getattr(other_item, 'id')}]."
+                        )
+                        return "AMBIGUOUS"
 
     if best_score >= STRONG_MATCH:
         return best_item
 
     # Fetch official alternative titles for top candidates
     scored.sort(key=lambda x: x[0], reverse=True)
-    for _, item, r_year in scored[:ALT_TITLE_LOOKUPS]:
+    for _, item, r_year, _ in scored[:ALT_TITLE_LOOKUPS]:
         r_title, _ = tmdb_title_year(item, media_type)
         orig = getattr(item, "original_title", None) or getattr(item, "original_name", None) or ""
         alt_titles = await _tmdb_alternative_titles(media_type, getattr(item, "id", None))
@@ -181,6 +199,8 @@ async def safe_search(title: str, type_: str, year: Optional[int] = None):
         try:
             results = await raw_search(title, type_, search_year)
             best = await pick_best(results, title, year, type_)
+            if best == "AMBIGUOUS":
+                return "AMBIGUOUS"
             if best is None and results:
                 top = results[0]
                 top_title = getattr(top, "title" if type_ == "movie" else "name", "?")

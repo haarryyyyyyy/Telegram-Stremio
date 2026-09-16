@@ -70,6 +70,14 @@ class Database:
 
             LOGGER.info(f"Active storage DB: storage_{self.current_db_index}")
 
+            # Drop legacy stream_analytics collection if present to reclaim MongoDB storage
+            try:
+                if "stream_analytics" in await self.dbs["tracking"].list_collection_names():
+                    await self.dbs["tracking"]["stream_analytics"].drop()
+                    LOGGER.info("Dropped legacy stream_analytics collection to reclaim MongoDB storage.")
+            except Exception as e:
+                LOGGER.warning(f"Could not drop stream_analytics collection: {e}")
+
             await self.ensure_indexes()
             create_task(self.prune_tracking_data())
 
@@ -116,42 +124,40 @@ class Database:
 
             # User Activity
             await tracking["user_activity"].create_index([("last_active", DESCENDING)])
-
-            # Stream Analytics TTL (auto-expires old stream telemetry logs after 14 days)
-            await tracking["stream_analytics"].create_index([("logged_at", DESCENDING)])
-            await tracking["stream_analytics"].create_index([("logged_at", ASCENDING)], expireAfterSeconds=14 * 86400)
+            await tracking["user_activity"].create_index([("streams", DESCENDING)])
 
             # Subtitles
             await self._ensure_subtitle_indexes(tracking)
         except Exception as e:
             LOGGER.error(f"Failed creating tracking indexes: {e}")
 
-    async def prune_tracking_data(self, stream_analytics_days: int = 14, requests_days: int = 30) -> dict:
-        """Prunes historical stream telemetry and old completed requests to reclaim MongoDB storage."""
+    async def prune_tracking_data(self, requests_days: int = 30) -> dict:
+        """Prunes old completed requests to reclaim MongoDB storage."""
         tracking = self.dbs.get("tracking")
         if tracking is None:
-            return {"deleted_analytics": 0, "deleted_requests": 0}
+            return {"deleted_requests": 0}
 
-        results = {"deleted_analytics": 0, "deleted_requests": 0}
+        results = {"deleted_requests": 0}
         try:
-            now = datetime.now(timezone.utc)
-            # Prune old stream analytics
-            analytics_cutoff = now - timedelta(days=stream_analytics_days)
-            res_analytics = await tracking["stream_analytics"].delete_many({"logged_at": {"$lt": analytics_cutoff}})
-            results["deleted_analytics"] = res_analytics.deleted_count
+            # Drop legacy stream_analytics collection if present
+            try:
+                if "stream_analytics" in await tracking.list_collection_names():
+                    await tracking["stream_analytics"].drop()
+            except Exception:
+                pass
 
+            now = datetime.now(timezone.utc)
             # Prune completed or rejected requests older than requests_days
             requests_cutoff = now - timedelta(days=requests_days)
             res_requests = await tracking["requests"].delete_many({
-                "status": {"$in": ["completed", "rejected", "failed"]},
+                "status": {"$in": ["completed", "rejected", "failed", "fulfilled"]},
                 "created_at": {"$lt": requests_cutoff}
             })
             results["deleted_requests"] = res_requests.deleted_count
 
-            if results["deleted_analytics"] > 0 or results["deleted_requests"] > 0:
+            if results["deleted_requests"] > 0:
                 LOGGER.info(
-                    f"Storage Cleanup: Pruned {results['deleted_analytics']} old stream logs and "
-                    f"{results['deleted_requests']} old request records."
+                    f"Storage Cleanup: Pruned {results['deleted_requests']} old request records."
                 )
         except Exception as e:
             LOGGER.warning(f"Error pruning tracking data: {e}")
@@ -2582,144 +2588,88 @@ class Database:
         return dead_links
 
     #-----
-    #----- Stream Analytics
+    #----- Stream Activity & Top Viewers
     #-----
 
     async def log_stream_stats(self, stats: dict) -> None:
-        #----- Persist a finished-stream record to the tracking DB for analytics
+        #----- Update user stream activity and play count without saving raw telemetry logs in MongoDB
         try:
-            record = {
-                "stream_id":   stats.get("stream_id"),
-                "msg_id":      stats.get("msg_id"),
-                "chat_id":     stats.get("chat_id"),
-                "dc_id":       stats.get("dc_id"),
-                "title":       stats.get("meta", {}).get("title"),  #----- Added title
-                "user_name":   stats.get("meta", {}).get("user_name"),
-                "token":       stats.get("meta", {}).get("token"),
-                "client_index": stats.get("client_index"),
-                "total_bytes": stats.get("total_bytes", 0),
-                "duration_sec": round(stats.get("duration", 0.0), 2),
-                "avg_mbps":    round(stats.get("avg_mbps", 0.0), 3),
-                "peak_mbps":   round(stats.get("peak_mbps", 0.0), 3),
-                "status":      stats.get("status", "finished"),
-                "parallelism": stats.get("parallelism"),
-                "chunk_size":  stats.get("chunk_size"),
-                "logged_at":   datetime.now(timezone.utc),
-            }
-            await self.dbs["tracking"]["stream_analytics"].insert_one(record)
             token = stats.get("meta", {}).get("token")
             if token:
+                title = stats.get("meta", {}).get("title") or stats.get("title")
+                user_name = stats.get("meta", {}).get("user_name")
                 upd = {"last_active": datetime.now(timezone.utc)}
-                if record.get("title"):
-                    upd["last_title"] = record["title"]
-                if record.get("user_name"):
-                    upd["name"] = record["user_name"]
+                if title:
+                    upd["last_title"] = title
+                if user_name:
+                    upd["name"] = user_name
                 await self.dbs["tracking"]["user_activity"].update_one(
                     {"_id": token}, {"$set": upd, "$inc": {"streams": 1}}, upsert=True
                 )
         except Exception as e:
-            LOGGER.warning(f"Stream analytics log failed: {e}")
+            LOGGER.warning(f"Stream activity update failed: {e}")
 
-    async def get_stream_analytics(self, limit: int = 200) -> dict:
-        #----- Return summary stats + recent stream records from the tracking DB
+    async def get_top_viewers(self, limit: int = 50) -> List[dict]:
+        #----- Return top viewers ranked by stream count from user_activity
         try:
-            col = self.dbs["tracking"]["stream_analytics"]
+            coll = self.dbs["tracking"]["user_activity"]
+            tokens_coll = self.dbs["tracking"]["api_tokens"]
 
-            #----- Aggregate totals
-            pipeline = [
-                {"$group": {
-                    "_id": None,
-                    "total_streams":     {"$sum": 1},
-                    "total_bytes":       {"$sum": "$total_bytes"},
-                    "avg_speed":         {"$avg": "$avg_mbps"},
-                    "peak_speed":        {"$max": "$peak_mbps"},
-                    "avg_duration":      {"$avg": "$duration_sec"},
-                }},
-            ]
-            agg = await col.aggregate(pipeline).to_list(1)
-            summary = agg[0] if agg else {}
-            summary.pop("_id", None)
+            valid_tokens = set()
+            try:
+                async for doc in tokens_coll.find({}, {"token": 1}):
+                    tok = doc.get("token")
+                    if tok:
+                        valid_tokens.add(tok)
+            except Exception:
+                valid_tokens = set()
 
-            #----- Per-client breakdown
-            per_client_pipeline = [
-                {"$group": {
-                    "_id":          "$client_index",
-                    "streams":      {"$sum": 1},
-                    "avg_mbps":     {"$avg": "$avg_mbps"},
-                    "peak_mbps":    {"$max": "$peak_mbps"},
-                    "total_bytes":  {"$sum": "$total_bytes"},
-                }},
-                {"$sort": {"_id": 1}},
-            ]
-            per_client = await col.aggregate(per_client_pipeline).to_list(None)
-            for row in per_client:
-                row["client_index"] = row.pop("_id")
-                row["avg_mbps"]     = round(row.get("avg_mbps", 0), 3)
-                row["peak_mbps"]    = round(row.get("peak_mbps", 0), 3)
+            match = {"_id": {"$in": list(valid_tokens)}} if valid_tokens else {}
+            cursor = coll.find(match).sort([("streams", DESCENDING), ("last_active", DESCENDING)]).limit(limit)
+            docs = await cursor.to_list(limit)
 
-            #----- Recent records (newest first)
-            recent_cursor = col.find(
-                {},
-                {"_id": 0, "stream_id": 1, "client_index": 1, "dc_id": 1,
-                 "total_bytes": 1, "duration_sec": 1, "avg_mbps": 1,
-                 "peak_mbps": 1, "status": 1, "logged_at": 1, "title": 1}
-            ).sort("logged_at", DESCENDING).limit(limit)
-            recent = await recent_cursor.to_list(None)
-            for r in recent:
-                if "logged_at" in r and r["logged_at"] is not None:
-                    ts = r["logged_at"]
-                    if getattr(ts, "tzinfo", None) is None:
-                        ts = ts.replace(tzinfo=timezone.utc)
-                    r["logged_at"] = ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            viewers = []
+            for d in docs:
+                token = d.get("_id")
+                if valid_tokens and token not in valid_tokens:
+                    continue
+                last = d.get("last_active")
+                last_str = None
+                if last:
+                    if getattr(last, "tzinfo", None) is None:
+                        last = last.replace(tzinfo=timezone.utc)
+                    last_str = last.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-            #----- Most-streamed titles
-            top_titles = await col.aggregate([
-                {"$match": {"title": {"$nin": [None, ""]}}},
-                {"$group": {"_id": "$title", "streams": {"$sum": 1}, "total_bytes": {"$sum": "$total_bytes"}}},
-                {"$sort": {"streams": -1}},
-                {"$limit": 8},
-            ]).to_list(None)
-            for r in top_titles:
-                r["title"] = r.pop("_id")
-
-            #----- Heaviest viewers (by data transferred)
-            top_users = await col.aggregate([
-                {"$match": {"user_name": {"$nin": [None, ""]}}},
-                {"$group": {"_id": "$user_name", "streams": {"$sum": 1}, "total_bytes": {"$sum": "$total_bytes"}}},
-                {"$sort": {"total_bytes": -1}},
-                {"$limit": 8},
-            ]).to_list(None)
-            for r in top_users:
-                r["user"] = r.pop("_id")
-
-            #----- Streams & data per day (last 14 days, chronological)
-            per_day = await col.aggregate([
-                {"$group": {
-                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$logged_at"}},
-                    "streams": {"$sum": 1},
-                    "total_bytes": {"$sum": "$total_bytes"},
-                }},
-                {"$sort": {"_id": -1}},
-                {"$limit": 14},
-            ]).to_list(None)
-            for r in per_day:
-                r["date"] = r.pop("_id")
-            per_day.reverse()
-
-            distinct_users = await col.distinct("user_name")
-            summary["active_users"] = len([u for u in distinct_users if u and u != "Unknown"])
-
-            return {
-                "summary":    summary,
-                "per_client": per_client,
-                "top_titles": top_titles,
-                "top_users":  top_users,
-                "per_day":    per_day,
-                "recent":     recent,
-            }
+                viewers.append({
+                    "token": token,
+                    "name": d.get("name") or "Unknown",
+                    "streams": int(d.get("streams") or 0),
+                    "last_title": d.get("last_title") or "—",
+                    "app": d.get("app") or "Stremio",
+                    "device": d.get("device") or "",
+                    "ip": d.get("ip") or "",
+                    "country": d.get("country") or "",
+                    "country_code": (d.get("country_code") or "").upper(),
+                    "city": d.get("city") or "",
+                    "isp": d.get("isp") or "",
+                    "last_active": last_str,
+                })
+            return viewers
         except Exception as e:
-            LOGGER.error(f"get_stream_analytics error: {e}")
-            return {"summary": {}, "per_client": [], "top_titles": [], "top_users": [], "per_day": [], "recent": []}
+            LOGGER.error(f"get_top_viewers error: {e}")
+            return []
+
+    async def get_stream_analytics(self, limit: int = 50) -> dict:
+        #----- Lightweight stats helper returning top viewers
+        top_viewers = await self.get_top_viewers(limit=limit)
+        return {
+            "top_viewers": top_viewers,
+            "summary": {
+                "total_streams": sum(v["streams"] for v in top_viewers),
+                "active_users": len(top_viewers),
+            },
+            "recent": [],
+        }
 
 
 

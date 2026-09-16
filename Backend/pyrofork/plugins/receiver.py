@@ -271,7 +271,9 @@ def _override_matches_indexed(override_id: str, imdb_id, tmdb_id) -> bool:
 #----- Re-index an edited channel file only when it carries an override ID
 @Client.on_edited_message(filters.channel & (filters.document | filters.video))
 async def file_edited_handler(client: Client, message: Message):
-    if str(message.chat.id) not in SettingsManager.current().auth_channels:
+    is_auth = str(message.chat.id) in SettingsManager.current().auth_channels
+    is_skip = is_skip_channel(message)
+    if not is_auth and not is_skip:
         return
     try:
         if not _is_supported_media(message):
