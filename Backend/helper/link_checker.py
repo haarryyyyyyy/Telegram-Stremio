@@ -46,7 +46,9 @@ class DeadLinkChecker:
         clients = list(multi_clients.values())
 
         for i in range(1, self.db.current_db_index + 1):
-            active_db = self.db.dbs[f"storage_{i}"]
+            active_db = self.db.dbs.get(f"storage_{i}")
+            if active_db is None:
+                continue
 
             #----- Movies (snapshot ids first so no cursor stays open during the slow Telegram checks)
             try:
@@ -126,8 +128,12 @@ class DeadLinkChecker:
         if chat_id is None or msg_id is None:
             return UNKNOWN
 
-        chat_id = int(f"-100{chat_id}")
-        msg_id = int(msg_id)
+        try:
+            raw_cid = str(chat_id).strip().replace("-100", "").replace("-", "")
+            chat_id = int(f"-100{raw_cid}")
+            msg_id = int(msg_id)
+        except (ValueError, TypeError):
+            return UNKNOWN
         confirmed_dead = False
         for client in clients:
             try:

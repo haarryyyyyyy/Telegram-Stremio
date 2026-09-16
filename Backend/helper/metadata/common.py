@@ -27,14 +27,30 @@ GRADIENT_COVER_BASE = "https://gradient-cover-api.vercel.app"
 
 API_SEMAPHORE = asyncio.Semaphore(12)
 
-# Shared caches (provider modules may also keep their own)
-IMDB_CACHE: dict = {}
-TMDB_SEARCH_CACHE: dict = {}
-TMDB_DETAILS_CACHE: dict = {}
-EPISODE_CACHE: dict = {}
-ALT_TITLES_CACHE: dict = {}
-TVDB_CACHE: dict = {}
-KITSU_CACHE: dict = {}
+class _LRUDict(dict):
+    """Memory-bounded dictionary that evicts oldest entries to prevent RAM creep."""
+    def __init__(self, maxsize: int = 3000, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._maxsize = maxsize
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if len(self) > self._maxsize:
+            try:
+                first_key = next(iter(self))
+                self.pop(first_key, None)
+            except (StopIteration, RuntimeError):
+                pass
+
+
+# Shared caches (bounded to keep memory footprint lean)
+IMDB_CACHE: dict = _LRUDict(maxsize=3000)
+TMDB_SEARCH_CACHE: dict = _LRUDict(maxsize=3000)
+TMDB_DETAILS_CACHE: dict = _LRUDict(maxsize=3000)
+EPISODE_CACHE: dict = _LRUDict(maxsize=3000)
+ALT_TITLES_CACHE: dict = _LRUDict(maxsize=3000)
+TVDB_CACHE: dict = _LRUDict(maxsize=3000)
+KITSU_CACHE: dict = _LRUDict(maxsize=3000)
 
 _INFLIGHT: Dict[tuple, asyncio.Future] = {}
 

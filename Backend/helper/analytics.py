@@ -5,9 +5,10 @@ import httpx
 
 from Backend import db
 from Backend.helper.custom_dl import ACTIVE_STREAMS
+from Backend.helper.metadata.common import _LRUDict
 from Backend.logger import LOGGER
 
-_IP_CACHE = {}
+_IP_CACHE = _LRUDict(maxsize=2000)
 _IP_TTL = 6 * 3600
 _LAST_FULL = {}
 _FULL_INTERVAL = 60

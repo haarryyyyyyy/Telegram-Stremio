@@ -1,7 +1,6 @@
 import asyncio
-import traceback
 
-import aiohttp
+import httpx
 
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
@@ -21,17 +20,17 @@ async def ping():
 
             ping_url = f"{base}/status"
 
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-                async with session.get(ping_url, allow_redirects=True) as resp:
-                    if 200 <= resp.status < 400:
-                        LOGGER.info("Pinged keep-alive URL %s — Status: %s", ping_url, resp.status)
-                    else:
-                        LOGGER.warning(
-                            "Keep-alive ping to %s returned %s (check BASE_URL / reverse proxy)",
-                            ping_url,
-                            resp.status,
-                        )
-        except asyncio.TimeoutError:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                resp = await client.get(ping_url)
+                if 200 <= resp.status_code < 400:
+                    LOGGER.info("Pinged keep-alive URL %s — Status: %s", ping_url, resp.status_code)
+                else:
+                    LOGGER.warning(
+                        "Keep-alive ping to %s returned %s (check BASE_URL / reverse proxy)",
+                        ping_url,
+                        resp.status_code,
+                    )
+        except httpx.TimeoutException:
             LOGGER.warning("Timeout: Could not connect to keep-alive URL.")
-        except Exception:
-            LOGGER.error("Ping failed:\n" + traceback.format_exc())
+        except Exception as e:
+            LOGGER.warning(f"Keep-alive ping error: {e}")
