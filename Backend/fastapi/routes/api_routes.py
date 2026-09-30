@@ -1,10 +1,10 @@
 import asyncio
-import asyncio
 import json
 import os
 import random
 import secrets
 import shutil
+import sys
 from datetime import datetime
 from time import time
 
@@ -2455,19 +2455,23 @@ async def download_logs_api():
 #----- Run the updater then re-exec the app; runs after the HTTP response is flushed
 async def _perform_restart(delay: float = 1.0) -> None:
     await asyncio.sleep(delay)
+    py_exec = sys.executable or "python3"
+    uv_path = shutil.which("uv")
     try:
         LOGGER.info("Web-triggered restart: running updater...")
-        proc = await asyncio.create_subprocess_exec("uv", "run", "update.py")
+        if uv_path:
+            proc = await asyncio.create_subprocess_exec(uv_path, "run", "update.py")
+        else:
+            proc = await asyncio.create_subprocess_exec(py_exec, "update.py")
         await proc.wait()
     except Exception as e:
         LOGGER.error(f"Restart updater failed: {e}")
 
-    uv_path = shutil.which("uv")
-    if not uv_path:
-        LOGGER.error("Restart aborted: uv not found in PATH.")
-        return
     LOGGER.info("Web-triggered restart: re-executing app...")
-    os.execl(uv_path, uv_path, "run", "-m", "Backend")
+    if uv_path:
+        os.execl(uv_path, uv_path, "run", "-m", "Backend")
+    else:
+        os.execl(py_exec, py_exec, "-m", "Backend")
 
 
 #----- Trigger a restart from the web (was /restart)
