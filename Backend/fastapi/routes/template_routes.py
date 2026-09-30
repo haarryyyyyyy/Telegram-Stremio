@@ -38,14 +38,14 @@ def _base_context(request: Request) -> dict:
 async def admin_dashboard_page(request: Request, _: bool = Depends(require_auth)):
     ctx = _base_context(request)
     ctx["current_user"] = get_current_user(request)
-    return templates.TemplateResponse("admin_dashboard.html", ctx)
+    return templates.TemplateResponse(request=request, name="admin_dashboard.html", context=ctx)
 
 
 #----- Login form (redirects to home when already authenticated)
 async def login_page(request: Request):
     if is_authenticated(request):
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("login.html", _base_context(request))
+    return templates.TemplateResponse(request=request, name="login.html", context=_base_context(request))
 
 
 #----- Handle login submission
@@ -56,7 +56,7 @@ async def login_post(request: Request, username: str = Form(...), password: str 
         return RedirectResponse(url="/", status_code=302)
     ctx = _base_context(request)
     ctx["error"] = "Invalid credentials"
-    return templates.TemplateResponse("login.html", ctx)
+    return templates.TemplateResponse(request=request, name="login.html", context=ctx)
 
 
 #----- Clear the session and return to login
@@ -155,7 +155,7 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
         ctx["user_activity_initial"] = await get_activity_overview(1, 5)
     except Exception:
         ctx["user_activity_initial"] = {"users": [], "online_count": 0, "total": 0, "page": 1, "per_page": 5, "total_pages": 1}
-    return templates.TemplateResponse("dashboard.html", ctx)
+    return templates.TemplateResponse(request=request, name="dashboard.html", context=ctx)
 
 
 #----- Media management shell (movie/tv)
@@ -164,7 +164,7 @@ async def media_management_page(request: Request, media_type: str = "movie", cus
     ctx["current_user"] = get_current_user(request)
     ctx["media_type"] = media_type
     ctx["custom"] = custom
-    return templates.TemplateResponse("media_management.html", ctx)
+    return templates.TemplateResponse(request=request, name="media_management.html", context=ctx)
 
 
 #----- Media edit page for a single title
@@ -186,42 +186,42 @@ async def edit_media_page(request: Request, tmdb_id: int, db_index: int, media_t
         "media_details": media_details,
         "api_token": api_tokens[0].get("token") if api_tokens else None,
     })
-    return templates.TemplateResponse("media_edit.html", ctx)
+    return templates.TemplateResponse(request=request, name="media_edit.html", context=ctx)
 
 
 #----- Subscription management shell
 async def admin_subscriptions_page(request: Request, _: bool = Depends(require_auth)):
     ctx = _base_context(request)
     ctx["current_user"] = get_current_user(request)
-    return templates.TemplateResponse("subscriptions_manage.html", ctx)
+    return templates.TemplateResponse(request=request, name="subscriptions_manage.html", context=ctx)
 
 
 #----- Access management shell
 async def admin_access_page(request: Request, _: bool = Depends(require_auth)):
     ctx = _base_context(request)
     ctx["current_user"] = get_current_user(request)
-    return templates.TemplateResponse("access_manage.html", ctx)
+    return templates.TemplateResponse(request=request, name="access_manage.html", context=ctx)
 
 
 #----- Content requests shell (admin)
 async def admin_requests_page(request: Request, _: bool = Depends(require_auth)):
     ctx = _base_context(request)
     ctx["current_user"] = get_current_user(request)
-    return templates.TemplateResponse("requests_manage.html", ctx)
+    return templates.TemplateResponse(request=request, name="requests_manage.html", context=ctx)
 
 
 #----- Public request page (no auth)
 async def public_request_page(request: Request):
     ctx = _base_context(request)
     ctx["is_authenticated"] = is_authenticated(request)
-    return templates.TemplateResponse("request_public.html", ctx)
+    return templates.TemplateResponse(request=request, name="request_public.html", context=ctx)
 
 
 #----- Custom catalogs shell
 async def custom_catalogs_page(request: Request, _: bool = Depends(require_auth)):
     ctx = _base_context(request)
     ctx["current_user"] = get_current_user(request)
-    return templates.TemplateResponse("custom_catalogs.html", ctx)
+    return templates.TemplateResponse(request=request, name="custom_catalogs.html", context=ctx)
 
 
 #----- Tools shell (WebUI replacement for scan/rescan/dbcheck commands)
@@ -231,7 +231,7 @@ async def tools_page(request: Request, _: bool = Depends(require_auth)):
     #----- Bot Admin Manager needs a session string AND more than one bot token
     ctx["userbot_configured"] = botmod.Userbot is not None
     ctx["multi_token_available"] = len(multi_clients) > 1
-    return templates.TemplateResponse("tools.html", ctx)
+    return templates.TemplateResponse(request=request, name="tools.html", context=ctx)
 
 
 #----- Settings page with current config and database list
@@ -254,4 +254,4 @@ async def settings_page(request: Request, _: bool = Depends(require_auth)):
         "settings": settings,
         "userbot_configured": botmod.Userbot is not None,
     })
-    return templates.TemplateResponse("settings.html", ctx)
+    return templates.TemplateResponse(request=request, name="settings.html", context=ctx)
