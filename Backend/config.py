@@ -28,6 +28,7 @@ class Telegram:
     NODE_NAME = getenv("NODE_NAME", "").strip() or getenv("INSTANCE_NAME", "").strip() or "VM 1"
 
     #----- Read/Write via SettingsManager
+    INGEST_ENABLED                = getenv("INGEST_ENABLED", "true").lower() == "true"
     REPLACE_MODE                  = getenv("REPLACE_MODE", "true").lower() == "true"
     HIDE_CATALOG                  = getenv("HIDE_CATALOG", "false").lower() == "true"
     AUTH_CHANNEL                  = [c.strip() for c in (getenv("AUTH_CHANNEL") or "").split(",") if c.strip()]

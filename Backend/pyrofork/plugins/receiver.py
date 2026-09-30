@@ -8,6 +8,7 @@ from pyrogram.types import Message
 
 import Backend
 from Backend import db
+from Backend.config import Telegram
 from Backend.helper.announcer import announce_new_media
 from Backend.helper.auto_catalog import start_single_media_catalog_sync
 from Backend.helper.encrypt import encode_string
@@ -204,6 +205,9 @@ async def _handle_personal_session(client: Client, message: Message) -> None:
 #----- Ingest new channel media into the queue after building metadata
 @Client.on_message(filters.channel & (filters.document | filters.video))
 async def file_receive_handler(client: Client, message: Message):
+    if not Telegram.INGEST_ENABLED:
+        return
+
     is_skip = is_skip_channel(message)
     if is_skip and not extract_default_id(message.caption or ""):
         return
@@ -277,6 +281,8 @@ def _override_matches_indexed(override_id: str, imdb_id, tmdb_id) -> bool:
 #----- Re-index an edited channel file only when it carries an override ID
 @Client.on_edited_message(filters.channel & (filters.document | filters.video))
 async def file_edited_handler(client: Client, message: Message):
+    if not Telegram.INGEST_ENABLED:
+        return
     is_auth = str(message.chat.id) in SettingsManager.current().auth_channels
     is_skip = is_skip_channel(message)
     if not is_auth and not is_skip:
@@ -313,6 +319,8 @@ async def file_edited_handler(client: Client, message: Message):
 #----- Purge database entries for messages deleted from auth channels
 @Client.on_deleted_messages(filters.channel)
 async def file_deleted_handler(client: Client, messages: list[Message]):
+    if not Telegram.INGEST_ENABLED:
+        return
     try:
         for message in messages:
             if not message.chat:

@@ -1422,6 +1422,7 @@ class Database:
     ) -> List[dict]:
         target_quality = quality_to_update.get("quality")
         incoming_group_key = quality_to_update.get("group_key")
+        incoming_id = quality_to_update.get("id")
         replace_mode = SettingsManager.current().replace_mode
 
         if incoming_group_key:
@@ -1431,6 +1432,7 @@ class Database:
                     q for q in existing_qualities
                     if q.get("quality") == target_quality
                     and q.get("group_key") != incoming_group_key
+                    and q.get("id") != incoming_id
                 ]
                 for q in stale:
                     await self._queue_quality_deletion(q)
@@ -1445,7 +1447,10 @@ class Database:
 
         #----- Incoming is a normal (non-split) file.
         if replace_mode:
-            stale = [q for q in existing_qualities if q.get("quality") == target_quality]
+            stale = [
+                q for q in existing_qualities
+                if q.get("quality") == target_quality and q.get("id") != incoming_id
+            ]
             for q in stale:
                 await self._queue_quality_deletion(q)
             existing_qualities = [
@@ -1460,7 +1465,7 @@ class Database:
             for q in existing_qualities:
                 if not q.get("group_key") and self._dup_key(q) == key:
                     LOGGER.info(f"Duplicate protection: skipped existing stream '{quality_to_update.get('name')}'.")
-                    if status is not None:
+                    if status is not None and q.get("id") != incoming_id:
                         status["duplicate_skipped"] = True
                     return existing_qualities
         existing_qualities.append(quality_to_update)
