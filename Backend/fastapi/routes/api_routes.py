@@ -73,7 +73,7 @@ from Backend.helper.subtitles import (
 )
 from Backend.logger import LOGGER
 import Backend.pyrofork.bot as botmod
-from Backend.helper.announcer import delete_announcement_async
+from Backend.helper.announcer import announce_new_media, delete_announcement_async
 from Backend.pyrofork.bot import (
     StreamBot,
     client_avg_mbps,
@@ -1371,6 +1371,11 @@ async def manual_add_media_api(payload: dict) -> dict:
     if result_tmdb_id and result_tmdb_id > 0:
         try:
             start_single_media_catalog_sync(db, tmdb_id=result_tmdb_id, media_type=media_type)
+        except Exception:
+            pass
+        try:
+            if 'metadata_info' in locals():
+                announce_new_media(metadata_info)
         except Exception:
             pass
 

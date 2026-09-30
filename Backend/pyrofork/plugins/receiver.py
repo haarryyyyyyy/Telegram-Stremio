@@ -196,6 +196,7 @@ async def _handle_personal_session(client: Client, message: Message) -> None:
                      if media_type == "tv" else "")
             LOGGER.info(f"[Manual Session] Added {quality} {where}to '{metadata_info.get('title')}' (id {tmdb_id}).")
             create_task(stamp_caption_with_id(message, metadata_info))
+            announce_new_media(metadata_info)
         else:
             LOGGER.warning(f"[Manual Session] Insert failed for message {message.id}.")
 
@@ -203,7 +204,8 @@ async def _handle_personal_session(client: Client, message: Message) -> None:
 #----- Ingest new channel media into the queue after building metadata
 @Client.on_message(filters.channel & (filters.document | filters.video))
 async def file_receive_handler(client: Client, message: Message):
-    if is_skip_channel(message):
+    is_skip = is_skip_channel(message)
+    if is_skip and not extract_default_id(message.caption or ""):
         return
 
     session = Backend.MANUAL_SESSION
@@ -219,7 +221,7 @@ async def file_receive_handler(client: Client, message: Message):
     if is_manual:
         if not (session and session.get("kind") == "real"):
             return
-    elif str(message.chat.id) not in SettingsManager.current().auth_channels:
+    elif str(message.chat.id) not in SettingsManager.current().auth_channels and not is_skip:
         await message.reply_text("> Channel is not in AUTH_CHANNEL")
         return
 
@@ -275,7 +277,9 @@ def _override_matches_indexed(override_id: str, imdb_id, tmdb_id) -> bool:
 #----- Re-index an edited channel file only when it carries an override ID
 @Client.on_edited_message(filters.channel & (filters.document | filters.video))
 async def file_edited_handler(client: Client, message: Message):
-    if str(message.chat.id) not in SettingsManager.current().auth_channels:
+    is_auth = str(message.chat.id) in SettingsManager.current().auth_channels
+    is_skip = is_skip_channel(message)
+    if not is_auth and not is_skip:
         return
     try:
         if not _is_supported_media(message):
