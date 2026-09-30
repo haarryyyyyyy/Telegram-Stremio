@@ -13,6 +13,7 @@ from fastapi.responses import Response as PlainResponse
 from fastapi.responses import StreamingResponse
 
 from Backend import db
+from Backend.config import Telegram
 from Backend.fastapi.security.tokens import verify_token
 from Backend.helper.analytics import client_ip_from, record_stream_start
 from Backend.helper.custom_dl import ACTIVE_STREAMS, RECENT_STREAMS, ByteStreamer
@@ -677,6 +678,8 @@ async def get_stream_stats():
             "chat_id": info.get("chat_id"),
             "title": info.get("meta", {}).get("title") or info.get("meta", {}).get("file_name"),
             "file_name": info.get("meta", {}).get("file_name"),
+            "user_name": info.get("meta", {}).get("user_name"),
+            "node_name": info.get("node_name") or Telegram.NODE_NAME,
             "client_index": info.get("client_index"),
             "dc_id": info.get("dc_id"),
             "status": info.get("status"),
@@ -685,6 +688,7 @@ async def get_stream_stats():
             "avg_mbps": round(info.get("avg_mbps", 0.0), 3),
             "peak_mbps": round(info.get("peak_mbps", 0.0), 3),
             "start_ts": info.get("start_ts"),
+            "meta": info.get("meta", {}),
         }
         for sid, info in ACTIVE_STREAMS.items()
     ]
@@ -695,6 +699,8 @@ async def get_stream_stats():
             "chat_id": info.get("chat_id"),
             "title": info.get("meta", {}).get("title") or info.get("meta", {}).get("file_name"),
             "file_name": info.get("meta", {}).get("file_name"),
+            "user_name": info.get("meta", {}).get("user_name"),
+            "node_name": info.get("node_name") or Telegram.NODE_NAME,
             "client_index": info.get("client_index"),
             "dc_id": info.get("dc_id"),
             "status": info.get("status"),
@@ -703,6 +709,7 @@ async def get_stream_stats():
             "avg_mbps": round(info.get("avg_mbps", 0.0), 3),
             "start_ts": info.get("start_ts"),
             "end_ts": info.get("end_ts"),
+            "meta": info.get("meta", {}),
         }
         for info in RECENT_STREAMS
     ]

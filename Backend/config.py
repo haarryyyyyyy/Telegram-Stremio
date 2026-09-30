@@ -25,6 +25,7 @@ class Telegram:
     #----- Required: Server
     PORT     = _int_env("PORT", 8000)
     OWNER_ID = _int_env("OWNER_ID")
+    NODE_NAME = getenv("NODE_NAME", "").strip() or getenv("INSTANCE_NAME", "").strip() or "VM 1"
 
     #----- Read/Write via SettingsManager
     REPLACE_MODE                  = getenv("REPLACE_MODE", "true").lower() == "true"

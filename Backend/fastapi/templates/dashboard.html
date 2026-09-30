@@ -297,12 +297,21 @@
                                             {% if stream.file_name and stream.file_name != (stream.title or stream.meta.get('title')) %}
                                             <p class="text-[10px] text-text-secondary truncate leading-tight" title="{{ stream.file_name }}">{{ stream.file_name }}</p>
                                             {% endif %}
-                                            <div class="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-widest text-text-secondary min-w-0">
-                                                <span class="whitespace-nowrap">Bot {{ (stream.client_index or 0) + 1 }}</span>
-                                                <span>•</span>
-                                                <span class="whitespace-nowrap">DC {{ stream.dc_id or '-' }}</span>
-                                                <span>•</span>
-                                                <span class="font-mono truncate max-w-[120px]">{{ stream.stream_id[:12] if stream.stream_id else 'Unknown' }}{% if stream.stream_id %}…{% endif %}</span>
+                                            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider min-w-0">
+                                                <span class="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+                                                    <i class="fa-solid fa-server text-[9px]"></i> {{ stream.node_name or 'VM 1' }}
+                                                </span>
+                                                <span class="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                                    <i class="fa-solid fa-robot text-[9px]"></i> Bot {{ (stream.client_index or 0) + 1 }}
+                                                </span>
+                                                {% if stream.user_name or stream.meta.get('user_name') %}
+                                                <span class="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                                                    <i class="fa-solid fa-user text-[9px]"></i> {{ stream.user_name or stream.meta.get('user_name') }}
+                                                </span>
+                                                {% endif %}
+                                                <span class="text-text-secondary">DC {{ stream.dc_id or '-' }}</span>
+                                                <span class="text-text-secondary">•</span>
+                                                <span class="font-mono text-text-secondary truncate max-w-[100px]">{{ stream.stream_id[:12] if stream.stream_id else 'Unknown' }}{% if stream.stream_id %}…{% endif %}</span>
                                             </div>
                                         </div>
                                         <span class="text-[10px] font-bold px-2 py-1 rounded-lg uppercase whitespace-nowrap stream-badge-live flex-shrink-0">
@@ -474,7 +483,10 @@
         const title = escapeHtml(getStreamTitle(stream));
         const fileName = escapeHtml(getStreamFileName(stream));
         const streamId = escapeHtml(stream?.stream_id ? String(stream.stream_id).slice(0, 12) + '…' : 'Unknown');
-        const label = escapeHtml(getClientLabel(stream));
+        const nodeName = escapeHtml(stream?.node_name || stream?.meta?.node_name || 'VM 1');
+        const botName = 'Bot ' + ((stream?.client_index ?? 0) + 1);
+        const userName = escapeHtml(stream?.user_name || stream?.meta?.user_name || '');
+        const dcId = escapeHtml(String(stream?.dc_id || '-'));
         const totalBytes = formatBytes(stream?.total_bytes || 0);
         const avgSpeed = stream?.avg_mbps !== null && stream?.avg_mbps !== undefined
             ? Number(stream.avg_mbps).toFixed(3) + ' MB/s' : '—';
@@ -486,10 +498,20 @@
                     <div class="min-w-0 flex-1 pr-2">
                         <h5 class="font-bold text-sm text-text truncate" title="${title}">${title}</h5>
                         ${fileName ? `<p class="text-[10px] text-text-secondary truncate leading-tight" title="${fileName}">${fileName}</p>` : ''}
-                        <div class="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-widest text-text-secondary min-w-0">
-                            <span class="whitespace-nowrap">${label}</span>
-                            <span>•</span>
-                            <span class="font-mono truncate max-w-[120px]">${streamId}</span>
+                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider min-w-0">
+                            <span class="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+                                <i class="fa-solid fa-server text-[9px]"></i> ${nodeName}
+                            </span>
+                            <span class="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                <i class="fa-solid fa-robot text-[9px]"></i> ${botName}
+                            </span>
+                            ${userName ? `
+                            <span class="inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                                <i class="fa-solid fa-user text-[9px]"></i> ${userName}
+                            </span>` : ''}
+                            <span class="text-text-secondary">DC ${dcId}</span>
+                            <span class="text-text-secondary">•</span>
+                            <span class="font-mono text-text-secondary truncate max-w-[100px]">${streamId}</span>
                         </div>
                     </div>
                     <span class="text-[10px] font-bold px-2 py-1 rounded-lg uppercase whitespace-nowrap flex-shrink-0 ${status.className}">

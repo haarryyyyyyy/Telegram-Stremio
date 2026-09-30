@@ -108,6 +108,8 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
                 "instant_mbps": round(info.get("instant_mbps", 0.0), 2),
                 "peak_mbps": round(info.get("peak_mbps", 0.0), 2),
                 "client_index": info.get("client_index", 0),
+                "node_name": info.get("node_name") or Telegram.NODE_NAME,
+                "user_name": info.get("meta", {}).get("user_name"),
                 "dc_id": info.get("dc_id", 0),
                 "duration": round(now - info.get("start_ts", now), 1),
                 "meta": info.get("meta", {})

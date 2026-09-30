@@ -14,6 +14,7 @@ from pyrogram.file_id import FileId
 from pyrogram.session import Auth, Session
 
 from Backend import db
+from Backend.config import Telegram
 from Backend.helper.exceptions import FileNotFound
 from Backend.helper.pyro import get_file_ids
 from Backend.logger import LOGGER
@@ -152,6 +153,7 @@ class ByteStreamer:
             "chat_id": getattr(file_id, "chat_id", None),
             "dc_id": file_id.dc_id,
             "client_index": client_index,
+            "node_name": Telegram.NODE_NAME,
             "start_ts": now,
             "last_ts": now,
             "total_bytes": 0,
