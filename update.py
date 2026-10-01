@@ -18,8 +18,6 @@ log_file = "log.txt"
 if ospath.exists(log_file):
     with open(log_file, "w") as f:
         f.truncate(0)
-if Path(".git").exists():
-    shutil.rmtree(".git")
 
 file_handler = FileHandler(log_file)
 stream_handler = StreamHandler()
@@ -60,28 +58,20 @@ def _fetch_upstream_from_db() -> tuple[str | None, str]:
 # ── Priority: DB value  >  config.env value ──────────────────────────────────
 db_repo, db_branch = _fetch_upstream_from_db()
 
-UPSTREAM_REPO   = db_repo   or environ.get("UPSTREAM_REPO",   "").strip() or None
+UPSTREAM_REPO   = db_repo   or environ.get("UPSTREAM_REPO",   "").strip() or "https://github.com/haarryyyyyyy/Telegram-Stremio.git"
 UPSTREAM_BRANCH = db_branch or environ.get("UPSTREAM_BRANCH", "").strip() or "master"
 
 # ── Git update ────────────────────────────────────────────────────────────────
 if UPSTREAM_REPO:
-    if Path(".git").exists():
-        srun(["rm", "-rf", ".git"])
+    if not Path(".git").exists():
+        srun(f"git init -q && git remote add origin {UPSTREAM_REPO}", shell=True)
+    else:
+        srun(f"git remote set-url origin {UPSTREAM_REPO}", shell=True)
 
-    update_cmd = (
-        f"git init -q && "
-        f"git config --global user.email 'doc.adhikari@gmail.com' && "
-        f"git config --global user.name 'weebzone' && "
-        f"git add . && git commit -sm 'update' -q && "
-        f"git remote add origin {UPSTREAM_REPO} && "
-        f"git fetch origin -q && "
-        f"git reset --hard origin/{UPSTREAM_BRANCH} -q"
-    )
-
+    update_cmd = f"git fetch origin {UPSTREAM_BRANCH} -q && git reset --hard origin/{UPSTREAM_BRANCH} -q"
     update = srun(update_cmd, shell=True)
-    repo = UPSTREAM_REPO.strip("/").split("/")
-    repo_url = f"https://github.com/{repo[-2]}/{repo[-1]}"
-    log_info(f"UPSTREAM_REPO: {repo_url} | UPSTREAM_BRANCH: {UPSTREAM_BRANCH}")
+
+    log_info(f"UPSTREAM_REPO: {UPSTREAM_REPO} | UPSTREAM_BRANCH: {UPSTREAM_BRANCH}")
 
     if update.returncode == 0:
         log_info("Successfully updated with latest commits!!")
