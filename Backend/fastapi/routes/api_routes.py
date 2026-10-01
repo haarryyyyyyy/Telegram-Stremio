@@ -2464,7 +2464,9 @@ async def download_logs_api():
 #----- Run the updater then re-exec the app; runs after the HTTP response is flushed
 async def _perform_restart(delay: float = 1.0) -> None:
     await asyncio.sleep(delay)
-    py_exec = sys.executable or "python3"
+    py_exec = sys.executable
+    if not py_exec or not os.path.exists(py_exec):
+        py_exec = shutil.which("python3") or shutil.which("python") or "python3"
     uv_path = shutil.which("uv")
     try:
         LOGGER.info("Web-triggered restart: running updater...")
@@ -2480,6 +2482,8 @@ async def _perform_restart(delay: float = 1.0) -> None:
     if uv_path:
         os.execl(uv_path, uv_path, "run", "-m", "Backend")
     else:
+        if not os.path.exists(py_exec):
+            py_exec = shutil.which("python3") or "python3"
         os.execl(py_exec, py_exec, "-m", "Backend")
 
 
