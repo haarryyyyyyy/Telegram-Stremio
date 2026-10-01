@@ -35,8 +35,8 @@ class Telegram:
     TMDB_API                      = getenv("TMDB_API", "")
     TVDB_API                       = getenv("TVDB_API", "")
     BASE_URL                      = getenv("BASE_URL", "").rstrip("/")
-    UPSTREAM_REPO                 = getenv("UPSTREAM_REPO", "")
-    UPSTREAM_BRANCH               = getenv("UPSTREAM_BRANCH", "")
+    UPSTREAM_REPO                 = getenv("UPSTREAM_REPO", "").strip() or "https://github.com/haarryyyyyyy/Telegram-Stremio.git"
+    UPSTREAM_BRANCH               = getenv("UPSTREAM_BRANCH", "").strip() or "master"
     ADMIN_USERNAME                = getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD                = getenv("ADMIN_PASSWORD", "admin")
     SUBSCRIPTION                  = getenv("SUBSCRIPTION", "false").lower() == "true"

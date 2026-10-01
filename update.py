@@ -58,7 +58,12 @@ def _fetch_upstream_from_db() -> tuple[str | None, str]:
 # ── Priority: DB value  >  config.env value ──────────────────────────────────
 db_repo, db_branch = _fetch_upstream_from_db()
 
-UPSTREAM_REPO   = db_repo   or environ.get("UPSTREAM_REPO",   "").strip() or "https://github.com/haarryyyyyyy/Telegram-Stremio.git"
+raw_repo = db_repo or environ.get("UPSTREAM_REPO", "").strip()
+if not raw_repo or "weebzone" in raw_repo.lower():
+    UPSTREAM_REPO = "https://github.com/haarryyyyyyy/Telegram-Stremio.git"
+else:
+    UPSTREAM_REPO = raw_repo
+
 UPSTREAM_BRANCH = db_branch or environ.get("UPSTREAM_BRANCH", "").strip() or "master"
 
 # ── Git update ────────────────────────────────────────────────────────────────
