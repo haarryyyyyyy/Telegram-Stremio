@@ -16,6 +16,7 @@ from pyrogram.types import ChatPrivileges
 
 import Backend
 from Backend import StartTime, __version__, db
+from Backend.config import Telegram
 from Backend.fastapi.routes.stream_routes import _streamer_by_client
 from Backend.fastapi.routes.stremio_routes import invalidate_membership_cache
 from Backend.helper.analytics import get_activity_overview
@@ -114,11 +115,13 @@ async def get_system_stats_api():
     try:
         db_stats = await db.get_database_stats()
         total_movies, total_tv_shows = db.content_totals(db_stats)
-        api_tokens = await db.get_all_api_tokens()
+        cluster_nodes = await db.get_cluster_nodes()
         
         return {
             "server_status": "running",
             "uptime": get_readable_time(time() - StartTime),
+            "node_name": Telegram.NODE_NAME,
+            "cluster_nodes": cluster_nodes,
             "telegram_bot": f"@{StreamBot.username}" if StreamBot and StreamBot.username else "@StreamBot",
             "connected_bots": len(multi_clients),
             "version": __version__,
@@ -2478,6 +2481,17 @@ async def _perform_restart(delay: float = 1.0) -> None:
 async def restart_app_api() -> dict:
     asyncio.create_task(_perform_restart())
     return {"status": "success", "message": "Restart initiated — the server will be back shortly."}
+
+
+#----- Return live status and heartbeats of all cluster nodes (VM 1, VM 2, etc.)
+async def get_cluster_nodes_api() -> dict:
+    nodes = await db.get_cluster_nodes()
+    return {
+        "nodes": nodes,
+        "current_node": Telegram.NODE_NAME,
+        "total_nodes": len(nodes),
+        "online_nodes": sum(1 for n in nodes if n.get("is_online")),
+    }
 
 
 

@@ -117,9 +117,12 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
             for stream_id, info in ACTIVE_STREAMS.items()
         ]
 
+        cluster_nodes = await db.get_cluster_nodes()
         system_stats = {
             "server_status": "running",
             "uptime": get_readable_time(now - StartTime),
+            "node_name": Telegram.NODE_NAME,
+            "cluster_nodes": cluster_nodes,
             "telegram_bot": f"@{StreamBot.username}" if StreamBot and StreamBot.username else "@StreamBot",
             "connected_bots": len(multi_clients),
             "loads": work_loads_summary(),
@@ -138,6 +141,8 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
         system_stats = {
             "server_status": "error",
             "error": str(e),
+            "node_name": Telegram.NODE_NAME,
+            "cluster_nodes": [],
             "uptime": "N/A",
             "telegram_bot": "@StreamBot",
             "connected_bots": 0,
@@ -153,6 +158,7 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
         }
 
     ctx["system_stats"] = system_stats
+    ctx["cluster_nodes"] = system_stats.get("cluster_nodes", [])
     try:
         ctx["user_activity_initial"] = await get_activity_overview(1, 5)
     except Exception:

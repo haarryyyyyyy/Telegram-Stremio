@@ -2769,3 +2769,91 @@ class Database:
 
         updated_doc = await collection.find_one({"_id": source_id})
         return convert_objectid_to_str(updated_doc) if updated_doc else None
+
+    #-----
+    #----- Cluster Node Heartbeat & Status
+    #-----
+    async def record_node_heartbeat(
+        self, node_name: str, ingest_enabled: bool, version: str, started_at: datetime, port: int = 8080
+    ) -> None:
+        try:
+            now = datetime.utcnow()
+            await self.dbs["tracking"]["cluster_nodes"].update_one(
+                {"_id": str(node_name)},
+                {
+                    "$set": {
+                        "node_name": str(node_name),
+                        "last_seen": now,
+                        "ingest_enabled": bool(ingest_enabled),
+                        "version": str(version),
+                        "port": int(port),
+                    },
+                    "$setOnInsert": {
+                        "started_at": started_at,
+                        "alerted_down": False,
+                    }
+                },
+                upsert=True,
+            )
+        except Exception as e:
+            LOGGER.debug(f"record_node_heartbeat error: {e}")
+
+    async def get_cluster_nodes(self) -> List[dict]:
+        def _human_duration(secs: int) -> str:
+            if secs < 60:
+                return f"{secs}s"
+            mins = secs // 60
+            if mins < 60:
+                return f"{mins}m"
+            hrs = mins // 60
+            rem_m = mins % 60
+            if hrs < 24:
+                return f"{hrs}h {rem_m}m"
+            days = hrs // 24
+            rem_h = hrs % 24
+            return f"{days}d {rem_h}h"
+
+        try:
+            cursor = self.dbs["tracking"]["cluster_nodes"].find()
+            nodes = await cursor.to_list(length=50)
+            now = datetime.utcnow()
+            result = []
+            for doc in nodes:
+                last_seen = doc.get("last_seen")
+                is_online = False
+                seconds_ago = 999999
+                if isinstance(last_seen, datetime):
+                    seconds_ago = (now - last_seen).total_seconds()
+                    is_online = seconds_ago <= 45
+
+                started_at = doc.get("started_at")
+                uptime_seconds = (now - started_at).total_seconds() if isinstance(started_at, datetime) else 0
+
+                result.append({
+                    "node_name": doc.get("node_name") or str(doc.get("_id")),
+                    "is_online": is_online,
+                    "seconds_ago": max(0, round(seconds_ago)),
+                    "last_seen_str": f"{_human_duration(max(0, round(seconds_ago)))} ago" if last_seen else "Never",
+                    "last_seen": last_seen.isoformat() if isinstance(last_seen, datetime) else None,
+                    "started_at": started_at.isoformat() if isinstance(started_at, datetime) else None,
+                    "uptime_seconds": max(0, round(uptime_seconds)),
+                    "uptime_str": _human_duration(max(0, round(uptime_seconds))) if started_at and is_online else "Offline",
+                    "alerted_down": bool(doc.get("alerted_down", False)),
+                    "ingest_enabled": bool(doc.get("ingest_enabled", True)),
+                    "version": doc.get("version", "1.0.0"),
+                    "port": doc.get("port", 8080),
+                })
+            return sorted(result, key=lambda x: x["node_name"])
+        except Exception as e:
+            LOGGER.error(f"get_cluster_nodes error: {e}")
+            return []
+
+    async def set_node_alerted_down(self, node_name: str, alerted: bool) -> None:
+        try:
+            await self.dbs["tracking"]["cluster_nodes"].update_one(
+                {"_id": str(node_name)},
+                {"$set": {"alerted_down": bool(alerted)}},
+            )
+        except Exception as e:
+            LOGGER.debug(f"set_node_alerted_down error: {e}")
+

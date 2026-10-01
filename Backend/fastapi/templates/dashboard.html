@@ -65,6 +65,82 @@
         </div>
     </div>
 
+    <!-- Cluster VM Nodes & Live Health -->
+    <div class="glass-panel p-5 sm:p-6 rounded-2xl sm:rounded-[2rem] mb-8">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-glow">
+                    <i class="fa-solid fa-network-wired text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="text-sm font-extrabold text-text uppercase tracking-wider">Cluster VM Nodes</h3>
+                    <p class="text-xs text-text-secondary">Multi-instance status, uptime, and automatic failover monitor</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 self-start sm:self-auto">
+                <span class="text-xs font-bold text-text-secondary">Current Host:</span>
+                <span id="current-host-badge" class="px-3 py-1 rounded-full text-xs font-extrabold bg-primary/20 text-primary border border-primary/30">
+                    {{ system_stats.node_name or 'VM 1' }}
+                </span>
+            </div>
+        </div>
+
+        <div id="cluster-nodes-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% for node in cluster_nodes %}
+            <div class="p-4 rounded-2xl border border-hairline bg-surface/40 hover:bg-surface/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-3.5">
+                    <div class="relative flex-shrink-0">
+                        <div class="w-11 h-11 rounded-xl {% if node.is_online %}bg-green-500/10 text-green-400{% else %}bg-red-500/10 text-red-400{% endif %} flex items-center justify-center text-lg">
+                            <i class="fa-solid fa-server"></i>
+                        </div>
+                        <span class="absolute -top-1 -right-1 flex h-3 w-3">
+                            {% if node.is_online %}
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                            {% else %}
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-bold text-base text-text">{{ node.node_name }}</span>
+                            {% if node.node_name == system_stats.node_name %}
+                            <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-primary/20 text-primary uppercase">You</span>
+                            {% endif %}
+                            {% if node.ingest_enabled %}
+                            <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-accent/20 text-accent uppercase">Ingest & Stream</span>
+                            {% else %}
+                            <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-surface text-text-secondary uppercase">Streamer</span>
+                            {% endif %}
+                        </div>
+                        <p class="text-xs text-text-secondary mt-0.5">
+                            {% if node.is_online %}
+                            <span class="text-green-400 font-semibold">Online</span> • Uptime: <span class="text-text font-medium">{{ node.uptime_str or 'Active' }}</span>
+                            {% else %}
+                            <span class="text-red-400 font-semibold">Offline</span> • Last seen: <span class="text-text-secondary">{{ node.last_seen_str or 'Recently' }}</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-hairline flex-shrink-0">
+                    <div class="text-left sm:text-right">
+                        <span class="text-[10px] uppercase font-bold text-text-secondary block">Heartbeat</span>
+                        <span class="text-xs font-bold {% if node.is_online %}text-text{% else %}text-red-400{% endif %}">
+                            {% if node.is_online %}Live ({{ node.seconds_ago }}s ago){% else %}Lost ({{ node.seconds_ago }}s ago){% endif %}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="col-span-full p-6 text-center text-text-secondary text-sm">
+                <i class="fa-solid fa-spinner animate-spin text-primary mr-2"></i> Registering cluster nodes...
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 min-w-0">
         <div class="lg:col-span-2 space-y-8 min-w-0">
             <style>
@@ -623,6 +699,10 @@
 
                 const elVersion = document.getElementById('sys-version');
                 if (elVersion) elVersion.innerText = 'v' + (stats.version || '1.0.0');
+
+                if (stats.cluster_nodes) {
+                    renderClusterNodes(stats.cluster_nodes, stats.node_name);
+                }
             }
 
             await loadStreamStats();
@@ -634,11 +714,67 @@
         }
     }
 
+    function renderClusterNodes(nodes, currentNode) {
+        const grid = document.getElementById('cluster-nodes-grid');
+        if (!grid) return;
+        if (!nodes || !nodes.length) {
+            grid.innerHTML = '<div class="col-span-full p-6 text-center text-text-secondary text-sm">No cluster nodes registered yet.</div>';
+            return;
+        }
+        grid.innerHTML = nodes.map(node => {
+            const isOnline = !!node.is_online;
+            const isCurrent = node.node_name === currentNode;
+            const statusColor = isOnline ? 'text-green-400' : 'text-red-400';
+            const iconBg = isOnline ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400';
+            const roleLabel = node.ingest_enabled ? 'Ingest & Stream' : 'Streamer';
+            const roleBg = node.ingest_enabled ? 'bg-accent/20 text-accent' : 'bg-surface text-text-secondary';
+            const statusText = isOnline ? 'Online' : 'Offline';
+            const timeText = isOnline ? `Uptime: <span class="text-text font-medium">${node.uptime_str || 'Active'}</span>` : `Last seen: <span class="text-text-secondary">${node.last_seen_str || 'Recently'}</span>`;
+            const pulse = isOnline
+                ? '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>'
+                : '<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>';
+            const hbText = isOnline ? `Live (${node.seconds_ago}s ago)` : `Lost (${node.seconds_ago}s ago)`;
+
+            return `
+                <div class="p-4 rounded-2xl border border-hairline bg-surface/40 hover:bg-surface/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center gap-3.5">
+                        <div class="relative flex-shrink-0">
+                            <div class="w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center text-lg">
+                                <i class="fa-solid fa-server"></i>
+                            </div>
+                            <span class="absolute -top-1 -right-1 flex h-3 w-3">
+                                ${pulse}
+                            </span>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-bold text-base text-text">${escapeHtmlSetup(node.node_name)}</span>
+                                ${isCurrent ? '<span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-primary/20 text-primary uppercase">You</span>' : ''}
+                                <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded ${roleBg} uppercase">${roleLabel}</span>
+                            </div>
+                            <p class="text-xs text-text-secondary mt-0.5">
+                                <span class="${statusColor} font-semibold">${statusText}</span> • ${timeText}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-hairline flex-shrink-0">
+                        <div class="text-left sm:text-right">
+                            <span class="text-[10px] uppercase font-bold text-text-secondary block">Heartbeat</span>
+                            <span class="text-xs font-bold ${statusColor}">${hbText}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         loadStreamStats();
         loadSetupStatus();
         setInterval(loadStreamStats, 30000);
         setInterval(refreshLiveDurations, 1000);
+        setInterval(refreshDashboard, 15000);
     });
 
     async function loadSetupStatus() {

@@ -66,6 +66,7 @@ from Backend.fastapi.routes.api_routes import (
     get_subscription_plans_api,
     get_settings_api,
     get_logs_api,
+    get_cluster_nodes_api,
     get_manual_session_api,
     get_system_stats_api,
     get_tools_channels_api,
@@ -766,6 +767,11 @@ async def admin_logs_download(_: bool = Depends(require_auth)):
 @app.post("/api/admin/restart")
 async def admin_restart(_: bool = Depends(require_auth)):
     return await restart_app_api()
+
+@app.get("/api/admin/cluster/nodes")
+@app.get("/api/cluster/nodes")
+async def admin_cluster_nodes(_: bool = Depends(require_auth)):
+    return await get_cluster_nodes_api()
 
 
 #----- Tools (WebUI replacement for /scan, /rescan, /dbcheck bot commands)
