@@ -28,7 +28,7 @@ from Backend.helper.auto_catalog import (
     update_auto_catalog_settings,
 )
 from Backend.helper.backup import export_config, import_config
-from Backend.helper.custom_dl import ByteStreamer, _speed_test_single_client, run_speed_test
+from Backend.helper.custom_dl import ACTIVE_STREAMS, ByteStreamer, _speed_test_single_client, run_speed_test
 from Backend.helper.encrypt import decode_string, encode_string
 from Backend.helper.health import run_health_checks
 from Backend.helper.manual_add import resolve_telegram_message, stamp_caption_by_ref
@@ -113,13 +113,15 @@ def _require_tmdb_id(value) -> int:
 #----- System stats
 async def get_system_stats_api():
     try:
+        now = time()
         db_stats = await db.get_database_stats()
         total_movies, total_tv_shows = db.content_totals(db_stats)
         cluster_nodes = await db.get_cluster_nodes()
+        total_active_streams = len(ACTIVE_STREAMS)
         
         return {
             "server_status": "running",
-            "uptime": get_readable_time(time() - StartTime),
+            "uptime": get_readable_time(now - StartTime),
             "node_name": Telegram.NODE_NAME,
             "cluster_nodes": cluster_nodes,
             "telegram_bot": f"@{StreamBot.username}" if StreamBot and StreamBot.username else "@StreamBot",
@@ -130,13 +132,17 @@ async def get_system_stats_api():
             "databases": db_stats,
             "total_databases": len(db_stats),
             "current_db_index": db.current_db_index,
-            "api_tokens": api_tokens
+            "total_active_streams": total_active_streams,
         }
     except Exception as e:
-        print(f"System Stats API Error: {e}")
+        LOGGER.error(f"System Stats API Error: {e}")
         return {
             "server_status": "error", 
-            "error": str(e)
+            "error": str(e),
+            "uptime": "N/A",
+            "connected_bots": 0,
+            "total_active_streams": 0,
+            "version": __version__,
         }
 
 
