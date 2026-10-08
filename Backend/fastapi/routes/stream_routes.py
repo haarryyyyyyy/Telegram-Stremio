@@ -117,8 +117,15 @@ async def decay_client_failures() -> None:
 
 #----- Parallelism/prefetch factor scaled by the number of clients
 def get_parallel_prefetch(client_count: int) -> tuple[int, int]:
-    value = min(max(math.ceil(client_count / 5), 1), 5)
-    return value, value
+    base_parallel = 6
+    base_prefetch = 16
+    if client_count > 0:
+        parallelism = min(base_parallel + client_count * 2, 16)
+        prefetch = min(base_prefetch + client_count * 4, 32)
+    else:
+        parallelism = base_parallel
+        prefetch = base_prefetch
+    return parallelism, prefetch
 
 
 #----- Reuse (or lazily create) the cached ByteStreamer for a client index
@@ -410,6 +417,13 @@ async def virtual_media_streamer(request: Request, parts_payload: list, token: s
 
     token_count = len(multi_clients) - 1
     parallelism, prefetch_count = get_parallel_prefetch(token_count)
+    extra_clients_for_stream = []
+    if parallelism > 1 and len(multi_clients) > 1:
+        other_indices = sorted((i for i in multi_clients if i != index), key=lambda i: work_loads.get(i, 0))
+        for ec_idx in other_indices[:parallelism - 1]:
+            ec_client = multi_clients[ec_idx]
+            ec_streamer = _get_streamer(ec_client, ec_idx)
+            extra_clients_for_stream.append((ec_idx, ec_streamer))
 
     asyncio.create_task(track_usage(stream_id, token, token_data))
 
@@ -422,6 +436,7 @@ async def virtual_media_streamer(request: Request, parts_payload: list, token: s
         parts=parts, start=start, end=end, chunk_size=chunk_size,
         streamer=streamer, client_index=index, request=request, meta=meta,
         stream_id=stream_id, parallelism=parallelism, prefetch_count=prefetch_count,
+        extra_clients=extra_clients_for_stream if extra_clients_for_stream else None,
     )
     return StreamingResponse(body_gen, headers=common_headers, status_code=status, media_type=mime_type)
 
