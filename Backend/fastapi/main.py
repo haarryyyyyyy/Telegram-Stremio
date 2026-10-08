@@ -765,8 +765,9 @@ async def admin_logs_download(_: bool = Depends(require_auth)):
     return await download_logs_api()
 
 @app.post("/api/admin/restart")
-async def admin_restart(_: bool = Depends(require_auth)):
-    return await restart_app_api()
+@app.post("/api/admin/cluster/restart")
+async def admin_restart(target: str = Query("all"), _: bool = Depends(require_auth)):
+    return await restart_app_api(target=target)
 
 @app.get("/api/admin/cluster/nodes")
 @app.get("/api/cluster/nodes")

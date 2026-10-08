@@ -77,11 +77,17 @@
                     <p class="text-xs text-text-secondary">Multi-instance status, uptime, and automatic failover monitor</p>
                 </div>
             </div>
-            <div class="flex items-center gap-2 self-start sm:self-auto">
-                <span class="text-xs font-bold text-text-secondary">Current Host:</span>
-                <span id="current-host-badge" class="px-3 py-1 rounded-full text-xs font-extrabold bg-primary/20 text-primary border border-primary/30">
-                    {{ system_stats.node_name or 'VM 1' }}
-                </span>
+            <div class="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+                <button onclick="restartClusterNode('all')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary/90 transition shadow-glow">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    <span>Update &amp; Restart Cluster</span>
+                </button>
+                <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-bold text-text-secondary">Current Host:</span>
+                    <span id="current-host-badge" class="px-3 py-1 rounded-full text-xs font-extrabold bg-primary/20 text-primary border border-primary/30">
+                        {{ system_stats.node_name or 'VM 1' }}
+                    </span>
+                </div>
             </div>
         </div>
 
@@ -131,6 +137,10 @@
                             {% if node.is_online %}Live ({{ node.seconds_ago }}s ago){% else %}Lost ({{ node.seconds_ago }}s ago){% endif %}
                         </span>
                     </div>
+                    <button onclick="restartClusterNode('{{ node.node_name }}')" title="Update and restart {{ node.node_name }}" class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-surface hover:bg-surface-hover border border-hairline text-text-secondary hover:text-text transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-power-off text-[10px]"></i>
+                        <span>Restart</span>
+                    </button>
                 </div>
             </div>
             {% else %}
@@ -763,10 +773,36 @@
                             <span class="text-[10px] uppercase font-bold text-text-secondary block">Heartbeat</span>
                             <span class="text-xs font-bold ${statusColor}">${hbText}</span>
                         </div>
+                        <button onclick="restartClusterNode('${escapeHtmlSetup(node.node_name)}')" title="Update and restart ${escapeHtmlSetup(node.node_name)}" class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-surface hover:bg-surface-hover border border-hairline text-text-secondary hover:text-text transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-power-off text-[10px]"></i>
+                            <span>Restart</span>
+                        </button>
                     </div>
                 </div>
             `;
         }).join('');
+    }
+
+    async function restartClusterNode(target = 'all') {
+        const isAll = target === 'all';
+        const confirmMsg = isAll
+            ? 'Update & restart ALL cluster VM instances (VM 1 and VM 2)? Each node will pull the latest code and restart.'
+            : `Restart node '${target}'? It will pull the latest code and restart.`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            showToast('Dispatching restart command to cluster...', 'info', 'Cluster Restart');
+            const res = await fetch(`/api/admin/restart?target=${encodeURIComponent(target)}`, { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message || 'Restart initiated.', 'success', 'Restart Dispatched');
+                setTimeout(refreshDashboard, 3000);
+            } else {
+                showToast(data.detail || 'Restart request failed.', 'error', 'Error');
+            }
+        } catch (e) {
+            showToast('Network error while requesting restart.', 'error', 'Error');
+        }
     }
 
     document.addEventListener('DOMContentLoaded', () => {

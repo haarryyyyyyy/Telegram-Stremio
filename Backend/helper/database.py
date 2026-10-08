@@ -2857,3 +2857,58 @@ class Database:
         except Exception as e:
             LOGGER.debug(f"set_node_alerted_down error: {e}")
 
+    async def request_cluster_restart(self, target_node: str = "all") -> None:
+        try:
+            now = datetime.utcnow()
+            await self.dbs["tracking"]["cluster_commands"].update_one(
+                {"_id": "restart_command"},
+                {
+                    "$set": {
+                        "target_node": str(target_node),
+                        "requested_at": now,
+                    }
+                },
+                upsert=True,
+            )
+            query = {} if str(target_node).lower() == "all" else {"_id": str(target_node)}
+            await self.dbs["tracking"]["cluster_nodes"].update_many(
+                query,
+                {"$set": {"restart_pending": True, "restart_requested_at": now}},
+            )
+        except Exception as e:
+            LOGGER.error(f"request_cluster_restart error: {e}")
+
+    async def check_and_clear_pending_restart(self, node_name: str, started_at: Optional[datetime] = None) -> bool:
+        try:
+            doc = await self.dbs["tracking"]["cluster_nodes"].find_one({"_id": str(node_name)})
+            if doc and doc.get("restart_pending"):
+                req_at = doc.get("restart_requested_at")
+                if isinstance(req_at, datetime) and started_at and started_at > req_at:
+                    # Already restarted after request
+                    await self.dbs["tracking"]["cluster_nodes"].update_one(
+                        {"_id": str(node_name)},
+                        {"$set": {"restart_pending": False}},
+                    )
+                    return False
+
+                await self.dbs["tracking"]["cluster_nodes"].update_one(
+                    {"_id": str(node_name)},
+                    {"$set": {"restart_pending": False}},
+                )
+                return True
+
+            cmd = await self.dbs["tracking"]["cluster_commands"].find_one({"_id": "restart_command"})
+            if cmd:
+                target = str(cmd.get("target_node", "")).lower()
+                req_at = cmd.get("requested_at")
+                if (target == "all" or target == str(node_name).lower()) and isinstance(req_at, datetime):
+                    if started_at and started_at > req_at:
+                        return False
+                    diff = (datetime.utcnow() - req_at).total_seconds()
+                    if diff <= 60:
+                        return True
+        except Exception as e:
+            LOGGER.debug(f"check_and_clear_pending_restart error: {e}")
+        return False
+
+

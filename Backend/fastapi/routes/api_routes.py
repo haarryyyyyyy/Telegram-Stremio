@@ -2461,16 +2461,33 @@ async def download_logs_api():
     return FileResponse(path, filename="log.txt", media_type="text/plain")
 
 
+def _resolve_python_executable() -> str:
+    candidates = [
+        sys.executable,
+        os.path.join(os.getcwd(), "venv", "bin", "python3"),
+        os.path.join(os.getcwd(), "venv", "bin", "python"),
+        os.path.join(os.path.expanduser("~"), "Telegram-Stremio", "venv", "bin", "python3"),
+        os.path.join(sys.prefix, "bin", "python3"),
+        os.path.join(sys.prefix, "bin", "python"),
+        shutil.which("python3"),
+        shutil.which("python"),
+        "/usr/bin/python3",
+        "/usr/local/bin/python3",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return sys.executable or "python3"
+
+
 #----- Run the updater then re-exec the app; runs after the HTTP response is flushed
 async def _perform_restart(delay: float = 1.0) -> None:
     await asyncio.sleep(delay)
-    py_exec = sys.executable
-    if not py_exec or not os.path.exists(py_exec):
-        py_exec = shutil.which("python3") or shutil.which("python") or "python3"
+    py_exec = _resolve_python_executable()
     uv_path = shutil.which("uv")
     try:
         LOGGER.info("Web-triggered restart: running updater...")
-        if uv_path:
+        if uv_path and os.path.exists(uv_path):
             proc = await asyncio.create_subprocess_exec(uv_path, "run", "update.py")
         else:
             proc = await asyncio.create_subprocess_exec(py_exec, "update.py")
@@ -2479,18 +2496,28 @@ async def _perform_restart(delay: float = 1.0) -> None:
         LOGGER.error(f"Restart updater failed: {e}")
 
     LOGGER.info("Web-triggered restart: re-executing app...")
-    if uv_path:
-        os.execl(uv_path, uv_path, "run", "-m", "Backend")
+    try:
+        if uv_path and os.path.exists(uv_path):
+            os.execl(uv_path, uv_path, "run", "-m", "Backend")
+        else:
+            os.execl(py_exec, py_exec, "-m", "Backend")
+    except Exception as e:
+        LOGGER.error(f"os.execl failed: {e}. Exiting process for systemd restart...")
+        os._exit(0)
+
+
+#----- Trigger a restart from the web (supports single node or all cluster nodes)
+async def restart_app_api(target: str = "all") -> dict:
+    target_clean = str(target or "all").strip()
+    await db.request_cluster_restart(target_clean)
+
+    if target_clean.lower() == "all" or target_clean.lower() == str(Telegram.NODE_NAME).lower():
+        asyncio.create_task(_perform_restart(delay=1.0))
+        msg = "Restart initiated for all cluster nodes (VM 1 & VM 2)." if target_clean.lower() == "all" else f"Restart initiated for {Telegram.NODE_NAME}."
     else:
-        if not os.path.exists(py_exec):
-            py_exec = shutil.which("python3") or "python3"
-        os.execl(py_exec, py_exec, "-m", "Backend")
+        msg = f"Restart command dispatched to cluster node '{target_clean}'."
 
-
-#----- Trigger a restart from the web (was /restart)
-async def restart_app_api() -> dict:
-    asyncio.create_task(_perform_restart())
-    return {"status": "success", "message": "Restart initiated — the server will be back shortly."}
+    return {"status": "success", "message": msg}
 
 
 #----- Return live status and heartbeats of all cluster nodes (VM 1, VM 2, etc.)

@@ -215,18 +215,25 @@
         <hr class="divider">
 
         <!-- Restart -->
-        <label class="s-label">Restart App</label>
+        <label class="s-label">Update &amp; Restart Cluster</label>
         <p style="font-size:0.83rem;color:var(--text-sec);margin-bottom:1rem">
-            Pulls the latest code from the upstream repo/branch above and restarts the server.
-            The web app becomes unreachable for a few seconds — this page will reconnect
-            automatically once it's back online.
+            Pulls the latest code from the upstream repository/branch and restarts the server instances.
+            Choose whether to update all load-balanced cluster nodes (VM 1 &amp; VM 2) simultaneously or just the currently connected instance.
         </p>
-        <button id="restart-btn" onclick="restartApp()"
-            class="flex items-center gap-2 px-6 py-2.5 rounded-full font-bold text-sm text-white shadow-lg transition-all"
-            style="background:#ef4444;box-shadow:0 0 18px rgba(239,68,68,0.4)">
-            <i class="fa-solid fa-power-off"></i>
-            <span>Restart Now</span>
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+            <button id="restart-btn" onclick="restartApp('all')"
+                class="flex items-center gap-2 px-6 py-2.5 rounded-full font-bold text-sm text-white shadow-lg transition-all"
+                style="background:#ef4444;box-shadow:0 0 18px rgba(239,68,68,0.4)">
+                <i class="fa-solid fa-arrows-rotate"></i>
+                <span>Update &amp; Restart All VMs</span>
+            </button>
+            <button id="restart-node-btn" onclick="restartApp('current')"
+                class="add-btn flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold"
+                type="button">
+                <i class="fa-solid fa-power-off"></i>
+                <span>Restart Connected VM Only</span>
+            </button>
+        </div>
     </div>
 
     <!-- ── General ─────────────────────────────────────────────────────── -->
@@ -1857,17 +1864,21 @@ function toggleLiveLogs() {
     if (on) { loadLogs(); logLiveTimer = setInterval(loadLogs, 2000); }
 }
 
-async function restartApp() {
-    if (!confirm('Restart the app now? It will pull the latest code and be unreachable for a few seconds.')) return;
+async function restartApp(target = 'all') {
+    const isAll = target === 'all';
+    const confirmText = isAll
+        ? 'Update and restart ALL cluster instances (VM 1 and VM 2)? Each node will pull the latest code and restart.'
+        : 'Restart the connected instance only? It will pull the latest code and restart.';
+    if (!confirm(confirmText)) return;
 
     let before = null;
     try { before = (await (await fetch('/api/admin/health')).json()).start_time; } catch (e) {}
 
     try {
-        const res = await fetch('/api/admin/restart', { method: 'POST' });
+        const res = await fetch(`/api/admin/restart?target=${encodeURIComponent(target)}`, { method: 'POST' });
         const data = await res.json();
         if (!res.ok) { showToast(data.detail || 'Could not restart.', 'error', 'Error'); return; }
-        showToast(data.message || 'Restart initiated.', 'info', 'Restart');
+        showToast(data.message || 'Restart initiated.', 'info', 'Restarting');
     } catch (e) {
         showToast('Network error.', 'error', 'Error'); return;
     }
@@ -1887,13 +1898,12 @@ async function restartApp() {
             if (wasDown || (before && d.start_time && d.start_time !== before)) {
                 clearInterval(poll);
                 msg.textContent = 'Back online! Reloading…';
-                // Persist a flag so the success notice survives the page reload below.
                 sessionStorage.setItem('restartSuccess', '1');
                 setTimeout(() => window.location.reload(), 900);
             }
         } catch (e) {
-            wasDown = true;   // server is down — it's restarting
-            msg.textContent = 'Server offline — waiting for it to come back…';
+            wasDown = true;
+            msg.textContent = isAll ? 'Cluster nodes updating & restarting — waiting to reconnect…' : 'Server offline — waiting for it to come back…';
         }
     }, 2000);
 }

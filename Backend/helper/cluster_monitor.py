@@ -58,7 +58,18 @@ async def _cluster_monitor_loop(bot_client) -> None:
                 port=Telegram.PORT,
             )
 
-            # 2. Inspect peer nodes in cluster
+            # 2. Check for remote cluster restart command
+            should_restart = await db.check_and_clear_pending_restart(
+                node_name=Telegram.NODE_NAME,
+                started_at=_LOCAL_START_TIME,
+            )
+            if should_restart:
+                LOGGER.info(f"[Cluster Monitor] Node '{Telegram.NODE_NAME}' received remote restart command! Initiating updater...")
+                from Backend.fastapi.routes.api_routes import _perform_restart
+                asyncio.create_task(_perform_restart(delay=1.0))
+                break
+
+            # 3. Inspect peer nodes in cluster
             nodes = await db.get_cluster_nodes()
             now = datetime.utcnow()
 
@@ -106,7 +117,7 @@ async def _cluster_monitor_loop(bot_client) -> None:
         except Exception as e:
             LOGGER.error(f"[Cluster Monitor] Error in monitor loop: {e}")
 
-        await asyncio.sleep(15)
+        await asyncio.sleep(8)
 
 
 def start_cluster_monitor(bot_client) -> None:
