@@ -1963,11 +1963,17 @@ async def update_settings_api(payload: dict) -> dict:
 
 #----- Pick a Telegram client capable of fetching channel messages
 def _scan_client():
-    if StreamBot is not None:
-        return StreamBot
+    import Backend.pyrofork.bot as botmod
+    if botmod.StreamBot is not None and getattr(botmod.StreamBot, "is_connected", False):
+        return botmod.StreamBot
+    if botmod.Userbot is not None and getattr(botmod.Userbot, "is_connected", False):
+        return botmod.Userbot
     if multi_clients:
-        return multi_clients.get(0) or next(iter(multi_clients.values()))
-    return None
+        for c in multi_clients.values():
+            if getattr(c, "is_connected", False):
+                return c
+        return next(iter(multi_clients.values()), None)
+    return botmod.StreamBot or botmod.Userbot
 
 
 #----- Configured AUTH channels with friendly names for the picker
@@ -2259,7 +2265,7 @@ async def cancel_scan_api() -> dict:
 
 
 async def scan_status_api() -> dict:
-    return {"status": "success", "data": scan_manager.get_status()}
+    return {"status": "success", "data": await scan_manager.get_cluster_status()}
 
 
 async def start_dbcheck_api() -> dict:
@@ -2278,7 +2284,7 @@ async def cancel_dbcheck_api() -> dict:
 
 
 async def dbcheck_status_api() -> dict:
-    return {"status": "success", "data": dbcheck_manager.get_status()}
+    return {"status": "success", "data": await dbcheck_manager.get_cluster_status()}
 
 
 #----- ── Duplicate check & cleanup ──
@@ -2295,7 +2301,7 @@ async def cancel_duplicate_check_api() -> dict:
 
 
 async def duplicate_check_status_api() -> dict:
-    return {"status": "success", "data": duplicate_manager.get_status()}
+    return {"status": "success", "data": await duplicate_manager.get_cluster_status()}
 
 
 #----- Remove selected duplicate streams, or (delete_all) keep the newest per group

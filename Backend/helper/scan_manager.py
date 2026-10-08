@@ -28,6 +28,8 @@ DBCHECK_PAGE_SIZE = 100
 
 _STATE_COLLECTION = "scan_state"
 _SCAN_DOC_ID = "scan"
+_DBCHECK_DOC_ID = "dbcheck"
+_DUPLICATE_DOC_ID = "duplicate"
 
 
 def _now() -> float:
@@ -43,6 +45,16 @@ def _fmt_elapsed(seconds: float) -> str:
     if m:
         return f"{m}m {s}s"
     return f"{s}s"
+
+
+def _get_all_storage_dbs(db) -> list:
+    if not db or not getattr(db, "dbs", None):
+        return []
+    storage_keys = sorted(
+        [k for k in db.dbs.keys() if k.startswith("storage_")],
+        key=lambda x: int(x.split("_")[1]) if x.split("_")[1].isdigit() else 999
+    )
+    return [db.dbs[k] for k in storage_keys if db.dbs.get(k) is not None]
 
 
 class ScanManager:
@@ -166,6 +178,22 @@ class ScanManager:
             "error": s["error"],
         }
 
+    async def get_cluster_status(self) -> Dict[str, Any]:
+        if self.state["status"] == "running" or (self._task is not None and not self._task.done()):
+            return self.get_status()
+        if self._db is not None:
+            try:
+                doc = await self._db.dbs["tracking"][_STATE_COLLECTION].find_one({"_id": _SCAN_DOC_ID})
+                if doc:
+                    doc.pop("_id", None)
+                    if doc.get("status") == "running" and (_now() - doc.get("updated_at", 0)) < 25:
+                        self.state = doc
+                    elif doc.get("status") in ("completed", "cancelled", "paused", "error"):
+                        self.state = doc
+            except Exception:
+                pass
+        return self.get_status()
+
     async def _stream_id_exists(self, channel: int, msg_id: int) -> bool:
         db = self._db
         try:
@@ -173,10 +201,7 @@ class ScanManager:
         except Exception:
             stream_hash = None
         part_match = {"$elemMatch": {"chat_id": channel, "msg_id": msg_id}}
-        for i in range(1, db.current_db_index + 1):
-            storage = db.dbs.get(f"storage_{i}")
-            if storage is None:
-                continue
+        for storage in _get_all_storage_dbs(db):
             if stream_hash:
                 if await storage["movie"].find_one({"telegram.id": stream_hash}):
                     return True
@@ -527,18 +552,22 @@ class ScanManager:
             await db.dbs["tracking"]["subtitles"].delete_many({"chat_id": channel_int})
         except Exception as e:
             LOGGER.warning(f"[ScanManager] subtitle purge failed for {channel_int}: {e}")
-        for i in range(1, db.current_db_index + 1):
-            storage = db.dbs.get(f"storage_{i}")
-            if storage is None:
-                continue
 
+        def _is_channel_match(chat_val) -> bool:
+            try:
+                c_clean = int(str(chat_val).replace("-100", "").lstrip("-"))
+                return c_clean == channel_int
+            except Exception:
+                return False
+
+        for storage in _get_all_storage_dbs(db):
             async for movie in storage["movie"].find({}):
                 remaining = []
                 changed = False
                 for q in movie.get("telegram", []):
                     try:
                         decoded = await decode_string(q["id"])
-                        if int(decoded["chat_id"]) == channel_int:
+                        if isinstance(decoded, dict) and _is_channel_match(decoded.get("chat_id")):
                             purged += 1
                             changed = True
                             continue
@@ -560,7 +589,7 @@ class ScanManager:
                         for q in episode.get("telegram", []):
                             try:
                                 decoded = await decode_string(q["id"])
-                                if int(decoded["chat_id"]) == channel_int:
+                                if isinstance(decoded, dict) and _is_channel_match(decoded.get("chat_id")):
                                     purged += 1
                                     tv_changed = True
                                     continue
@@ -627,6 +656,35 @@ class DbCheckManager:
             "error": s["error"],
         }
 
+    async def _persist(self) -> None:
+        if self._db is None:
+            return
+        self.state["updated_at"] = _now()
+        try:
+            doc = dict(self.state)
+            doc["_id"] = _DBCHECK_DOC_ID
+            await self._db.dbs["tracking"][_STATE_COLLECTION].update_one(
+                {"_id": _DBCHECK_DOC_ID}, {"$set": doc}, upsert=True
+            )
+        except Exception as e:
+            LOGGER.debug(f"[DbCheckManager] persist failed: {e}")
+
+    async def get_cluster_status(self) -> Dict[str, Any]:
+        if self.state["status"] == "running" or (self._task is not None and not self._task.done()):
+            return self.get_status()
+        if self._db is not None:
+            try:
+                doc = await self._db.dbs["tracking"][_STATE_COLLECTION].find_one({"_id": _DBCHECK_DOC_ID})
+                if doc:
+                    doc.pop("_id", None)
+                    if doc.get("status") == "running" and (_now() - doc.get("updated_at", 0)) < 25:
+                        self.state = doc
+                    elif doc.get("status") in ("completed", "cancelled", "error"):
+                        self.state = doc
+            except Exception:
+                pass
+        return self.get_status()
+
     #----- ── Control ───────────────────────────────────────────────────────────────
     async def start(self, client) -> Dict[str, Any]:
         async with self._lock:
@@ -636,6 +694,7 @@ class DbCheckManager:
             self.state["status"] = "running"
             self.state["started_at"] = _now()
             self._cancel = False
+            await self._persist()
             self._task = asyncio.create_task(self._run(client))
             return {"ok": True, "message": "DB check started.", "status": self.get_status()}
 
@@ -660,7 +719,9 @@ class DbCheckManager:
                     if not alive:
                         return False
                 return True
-            return await self._check_one(client, decoded.get("chat_id"), decoded.get("msg_id"))
+            if isinstance(decoded, dict):
+                return await self._check_one(client, decoded.get("chat_id"), decoded.get("msg_id"))
+            return False
         except FloodWait as e:
             await asyncio.sleep(e.value)
             return await self._check_message(client, stream_hash)
@@ -671,16 +732,23 @@ class DbCheckManager:
         if chat_id is None or msg_id is None:
             return False
         try:
-            chat_id = int(f"-100{chat_id}")
-            msg_id = int(msg_id)
-            msg = await client.get_messages(chat_id, msg_id)
+            c_str = str(chat_id).strip()
+            if c_str.startswith("-100"):
+                c_int = int(c_str)
+            elif c_str.startswith("-"):
+                c_int = int(f"-100{c_str.lstrip('-')}")
+            else:
+                c_int = int(f"-100{c_str}")
+
+            msg = await client.get_messages(c_int, int(msg_id))
             if msg is None or msg.empty:
                 return False
             return True
         except FloodWait as e:
             await asyncio.sleep(e.value)
-            return await self._check_one(client, str(chat_id).replace("-100", ""), msg_id)
-        except Exception:
+            return await self._check_one(client, chat_id, msg_id)
+        except Exception as e:
+            LOGGER.debug(f"[DbCheck] Check message {chat_id}/{msg_id} error: {e}")
             return None
 
     async def _process_batch(self, client, batch: List[str]):
@@ -709,13 +777,13 @@ class DbCheckManager:
     #----- ── Worker ──────────────────────────────────────────────────────────────────
     async def _run(self, client) -> None:
         db = self._db
+        if db is None:
+            from Backend import db as fallback_db
+            db = fallback_db
+            self._db = db
         s = self.state
         try:
-            for i in range(1, db.current_db_index + 1):
-                storage = db.dbs.get(f"storage_{i}")
-                if storage is None:
-                    continue
-
+            for storage in _get_all_storage_dbs(db):
                 #----- Movies
                 last_id = None
                 while not self._cancel:
@@ -733,6 +801,7 @@ class DbCheckManager:
                             batch = stream_ids[x:x + DBCHECK_CONCURRENCY]
                             results = await self._process_batch(client, batch)
                             await self._record_results(batch, results)
+                            await self._persist()
                             await asyncio.sleep(DBCHECK_BATCH_DELAY)
 
                 #----- TV
@@ -757,19 +826,23 @@ class DbCheckManager:
                             batch = stream_ids[x:x + DBCHECK_CONCURRENCY]
                             results = await self._process_batch(client, batch)
                             await self._record_results(batch, results)
+                            await self._persist()
                             await asyncio.sleep(DBCHECK_BATCH_DELAY)
 
             s["status"] = "cancelled" if self._cancel else "completed"
             s["finished_at"] = _now()
+            await self._persist()
             LOGGER.info(f"[DbCheck] {s['status']} — checked {s['checked']}, dead {s['dead']}")
         except asyncio.CancelledError:
             s["status"] = "cancelled"
             s["finished_at"] = _now()
+            await self._persist()
             raise
         except Exception as e:
             s["status"] = "error"
             s["error"] = str(e)
             s["finished_at"] = _now()
+            await self._persist()
             LOGGER.error(f"[DbCheck] Error: {e}")
 
     #----- ── Purge ────────────────────────────────────────────────────────────────────
@@ -873,6 +946,35 @@ class DuplicateManager:
             "purge_eta": _fmt_elapsed(p_eta) if p_eta else "—",
         }
 
+    async def _persist(self) -> None:
+        if self._db is None:
+            return
+        self.state["updated_at"] = _now()
+        try:
+            doc = dict(self.state)
+            doc["_id"] = _DUPLICATE_DOC_ID
+            await self._db.dbs["tracking"][_STATE_COLLECTION].update_one(
+                {"_id": _DUPLICATE_DOC_ID}, {"$set": doc}, upsert=True
+            )
+        except Exception as e:
+            LOGGER.debug(f"[DuplicateManager] persist failed: {e}")
+
+    async def get_cluster_status(self) -> Dict[str, Any]:
+        if self.state["status"] == "running" or self.state.get("purge_status") == "running" or (self._task is not None and not self._task.done()):
+            return self.get_status()
+        if self._db is not None:
+            try:
+                doc = await self._db.dbs["tracking"][_STATE_COLLECTION].find_one({"_id": _DUPLICATE_DOC_ID})
+                if doc:
+                    doc.pop("_id", None)
+                    if (doc.get("status") == "running" or doc.get("purge_status") == "running") and (_now() - doc.get("updated_at", 0)) < 25:
+                        self.state = doc
+                    elif doc.get("status") in ("completed", "cancelled", "error"):
+                        self.state = doc
+            except Exception:
+                pass
+        return self.get_status()
+
     async def start(self) -> Dict[str, Any]:
         async with self._lock:
             if self.state["status"] == "running":
@@ -883,6 +985,7 @@ class DuplicateManager:
             self.state["status"] = "running"
             self.state["started_at"] = _now()
             self._cancel = False
+            await self._persist()
             self._task = asyncio.create_task(self._run())
             return {"ok": True, "message": "Duplicate scan started.", "status": self.get_status()}
 
@@ -892,13 +995,20 @@ class DuplicateManager:
         self._cancel = True
         return {"ok": True, "message": "Stop requested."}
 
+    @staticmethod
+    def _dup_key(quality: dict) -> tuple:
+        import re
+        name = re.sub(r"\s+", " ", str(quality.get("name") or "").strip().lower())
+        size = str(quality.get("size") or "").strip().lower()
+        return (quality.get("quality"), name, size)
+
     #----- Group a telegram list by (quality, name, size); record groups with 2+ entries
     def _collect(self, qualities: List[dict], label: str, media_type: str, gid: int) -> int:
         buckets: Dict[tuple, List[dict]] = {}
         for q in qualities:
             if not q.get("id"):
                 continue
-            buckets.setdefault(self._db._dup_key(q), []).append(q)
+            buckets.setdefault(self._dup_key(q), []).append(q)
         for items in buckets.values():
             if len(items) < 2:
                 continue
@@ -918,14 +1028,14 @@ class DuplicateManager:
 
     async def _run(self) -> None:
         db = self._db
+        if db is None:
+            from Backend import db as fallback_db
+            db = fallback_db
+            self._db = db
         s = self.state
         try:
             gid = 0
-            for i in range(1, db.current_db_index + 1):
-                storage = db.dbs.get(f"storage_{i}")
-                if storage is None:
-                    continue
-
+            for storage in _get_all_storage_dbs(db):
                 async for movie in storage["movie"].find({}):
                     if self._cancel:
                         break
@@ -933,6 +1043,8 @@ class DuplicateManager:
                     year = movie.get("release_year")
                     label = f"{movie.get('title') or 'Unknown'}{f' ({year})' if year else ''}"
                     gid = self._collect(movie.get("telegram", []), label, "movie", gid)
+                    if s["scanned"] % 50 == 0:
+                        await self._persist()
 
                 async for show in storage["tv"].find({}):
                     if self._cancel:
@@ -943,18 +1055,23 @@ class DuplicateManager:
                         for ep in season.get("episodes", []):
                             label = f"{title} S{season.get('season_number', 0):02d}E{ep.get('episode_number', 0):02d}"
                             gid = self._collect(ep.get("telegram", []), label, "tv", gid)
+                    if s["scanned"] % 50 == 0:
+                        await self._persist()
 
             s["status"] = "cancelled" if self._cancel else "completed"
             s["finished_at"] = _now()
+            await self._persist()
             LOGGER.info(f"[Duplicates] {s['status']} — {len(s['groups'])} group(s), {s['duplicate_count']} redundant")
         except asyncio.CancelledError:
             s["status"] = "cancelled"
             s["finished_at"] = _now()
+            await self._persist()
             raise
         except Exception as e:
             s["status"] = "error"
             s["error"] = str(e)
             s["finished_at"] = _now()
+            await self._persist()
             LOGGER.error(f"[Duplicates] Error: {e}")
 
     #----- Delete duplicates: explicit ids, or (delete_all) keep the newest per group.
