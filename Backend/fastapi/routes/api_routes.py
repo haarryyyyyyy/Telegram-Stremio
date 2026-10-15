@@ -33,14 +33,6 @@ from Backend.helper.encrypt import decode_string, encode_string
 from Backend.helper.health import run_health_checks
 from Backend.helper.manual_add import resolve_telegram_message, stamp_caption_by_ref
 from Backend.helper.pyro import resolve_video_thumb_url
-from Backend.helper.requests_manager import (
-    delete_request,
-    list_requests,
-    popular_pending,
-    search_titles,
-    set_status,
-    submit_request,
-)
 from Backend.helper.metadata import (
     extract_default_id,
     fetch_selected_movie_metadata,
@@ -77,6 +69,7 @@ import Backend.pyrofork.bot as botmod
 from Backend.helper.announcer import announce_new_media, delete_announcement_async
 from Backend.pyrofork.bot import (
     StreamBot,
+    USERBOT_CLIENT_INDEX,
     client_avg_mbps,
     client_dc_map,
     client_failures,
@@ -116,9 +109,34 @@ async def get_system_stats_api():
         now = time()
         db_stats = await db.get_database_stats()
         total_movies, total_tv_shows = db.content_totals(db_stats)
-        cluster_nodes = await db.get_cluster_nodes()
         total_active_streams = len(ACTIVE_STREAMS)
-        
+
+        bot_workloads = []
+        for idx in sorted(multi_clients.keys()):
+            failures = client_failures.get(idx, 0)
+            status = "healthy" if failures == 0 else ("degraded" if failures < 3 else "error")
+            bot_workloads.append({
+                "client_index": idx,
+                "dc": client_dc_map.get(idx),
+                "status": status,
+                "current_load": work_loads.get(idx, 0),
+                "avg_mbps": client_avg_mbps.get(idx, 0.0),
+            })
+        if botmod.Userbot is not None:
+            failures = client_failures.get(USERBOT_CLIENT_INDEX, 0)
+            status = "healthy" if failures == 0 else ("degraded" if failures < 3 else "error")
+            userbot_dc = getattr(getattr(botmod.Userbot, "session", None), "dc_id", None)
+            bot_workloads.append({
+                "client_index": USERBOT_CLIENT_INDEX,
+                "dc": userbot_dc,
+                "status": status,
+                "current_load": work_loads.get(USERBOT_CLIENT_INDEX, 0),
+                "avg_mbps": client_avg_mbps.get(USERBOT_CLIENT_INDEX, 0.0),
+            })
+
+        cached_files = sum(len(getattr(s, "_file_id_cache", {})) for s in ByteStreamer._instances.values())
+        cache_label = f"{cached_files} items" if cached_files else "0 items"
+
         return {
             "server_status": "running",
             "uptime": get_readable_time(now - StartTime),
@@ -126,6 +144,9 @@ async def get_system_stats_api():
             "cluster_nodes": cluster_nodes,
             "telegram_bot": f"@{StreamBot.username}" if StreamBot and StreamBot.username else "@StreamBot",
             "connected_bots": len(multi_clients),
+            "total_bots": len(multi_clients),
+            "bot_workloads": bot_workloads,
+            "cache_size": cache_label,
             "version": __version__,
             "movies": total_movies,
             "tv_shows": total_tv_shows,
@@ -629,61 +650,6 @@ async def clear_stream_analytics_api() -> dict:
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
-
-#----- Public: search titles to request (by name, IMDb id or TMDB id)
-async def request_search_api(q: str) -> dict:
-    try:
-        return {"status": "success", "data": await search_titles(q)}
-    except Exception as e:
-        LOGGER.error(f"Request search error: {e}")
-        return {"status": "error", "message": str(e), "data": []}
-
-
-#----- Public: submit a request for a title
-async def request_submit_api(payload: dict, client_ip: str) -> dict:
-    result = await submit_request(
-        media_type=payload.get("media_type"),
-        tmdb_id=payload.get("tmdb_id"),
-        imdb_id=payload.get("imdb_id"),
-        title=payload.get("title"),
-        year=payload.get("year"),
-        poster=payload.get("poster"),
-        client_ip=client_ip,
-    )
-    return {"status": "success" if result.get("ok") else "error", **result}
-
-
-#----- Public: most-requested pending titles
-async def request_popular_api() -> dict:
-    try:
-        return {"status": "success", "data": await popular_pending()}
-    except Exception as e:
-        return {"status": "error", "message": str(e), "data": []}
-
-
-#----- Admin: list all content requests
-async def get_requests_api() -> dict:
-    try:
-        return {"status": "success", "data": await list_requests()}
-    except Exception as e:
-        LOGGER.error(f"Requests API error: {e}")
-        return {"status": "error", "message": str(e)}
-
-
-#----- Admin: uploaded / denied / banned / pending
-async def update_request_api(request_id: str, payload: dict) -> dict:
-    new_status = str(payload.get("status", "")).strip()
-    doc = await set_status(request_id, new_status)
-    if not doc:
-        raise HTTPException(status_code=404, detail="Request not found or invalid status.")
-    return {"status": "success", "data": doc}
-
-
-async def delete_request_api(request_id: str) -> dict:
-    if not await delete_request(request_id):
-        raise HTTPException(status_code=404, detail="Request not found.")
-    return {"status": "success", "message": "Request deleted."}
 
 
 #----- Admin subscription management

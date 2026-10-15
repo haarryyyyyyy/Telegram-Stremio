@@ -75,6 +75,23 @@ def parse_media_name(name: str) -> dict:
         except Exception as e:
             LOGGER.warning(f"GuessIt parsing failed for {name}: {e}")
 
+    # Fallback resolution detection if PTN and GuessIt missed it
+    if not parsed["quality"]:
+        res_m = _RES_WITH_P_RE.search(name)
+        if res_m:
+            parsed["quality"] = res_m.group(0).lower()
+        elif re.search(r"(?i)\b(?:4k|2160|uhd)\b", name):
+            parsed["quality"] = "4K"
+        elif re.search(r"(?i)\b(?:1080|fhd)\b", name):
+            parsed["quality"] = "1080p"
+        elif re.search(r"(?i)\b(?:720)\b", name):
+            parsed["quality"] = "720p"
+        elif re.search(r"(?i)\b(?:480)\b", name):
+            parsed["quality"] = "480p"
+
+    if parsed.get("title") and isinstance(parsed["title"], str):
+        parsed["title"] = parsed["title"].strip(" -_.")
+
     # Normalize season 0 → None (specials folder only, not a real season for routing)
     try:
         if parsed.get("season") is not None and int(parsed["season"]) == 0:

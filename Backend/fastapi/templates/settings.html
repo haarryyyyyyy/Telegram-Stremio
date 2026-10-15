@@ -1466,11 +1466,12 @@ function removeItem(btn) {
 function collectList(listKey) {
     const container = document.getElementById(listKey + '_items');
     if (!container) return [];
+    const isChannel = ['auth_channels', 'global_search_channels', 'manual_channels'].includes(listKey);
     return [...container.querySelectorAll('[data-list="' + listKey + '"]')]
         .map(i => {
             if (i.dataset.id) return i.dataset.id.trim();
-            if (i.value !== undefined) return extractChannelId(i.value);
-            return extractChannelId(i.textContent || '');
+            const val = (i.value !== undefined ? i.value : (i.textContent || '')).trim();
+            return isChannel ? extractChannelId(val) : val;
         })
         .filter(Boolean);
 }
@@ -1501,8 +1502,8 @@ async function saveSettings() {
     ];
     const acEl = document.getElementById('announcement_channel');
     const scEl = document.getElementById('skip_channel');
-    const acId = (acEl.dataset.id || extractChannelId(acEl.value.trim()));
-    const scId = (scEl.dataset.id || extractChannelId(scEl.value.trim()));
+    const acId = acEl ? (acEl.dataset.id || extractChannelId((acEl.value || '').trim())) : '';
+    const scId = scEl ? (scEl.dataset.id || extractChannelId((scEl.value || '').trim())) : '';
     if (acId) channelFields.push(acId);
     if (scId) channelFields.push(scId);
     for (const c of channelFields) {
@@ -1511,11 +1512,11 @@ async function saveSettings() {
             return;
         }
     }
-    if (acEl.value.trim() && !acId) {
+    if (acEl && acEl.value.trim() && !acId) {
         alert('Announcement channel must be -100xxxxxxxxxx format.');
         return;
     }
-    if (scEl.value.trim() && !scId) {
+    if (scEl && scEl.value.trim() && !scId) {
         alert('Skip channel must be -100xxxxxxxxxx format.');
         return;
     }
@@ -1566,8 +1567,8 @@ async function saveSettings() {
         global_search_channels:        collectList('global_search_channels'),
         manual_channels:               collectList('manual_channels'),
         announce_new_content:          document.getElementById('announce_new_content').checked,
-        announcement_channel:          (function(){const el=document.getElementById('announcement_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
-        skip_channel:                  (function(){const el=document.getElementById('skip_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
+        announcement_channel:          (function(){const el=document.getElementById('announcement_channel');return el ? (el.dataset.id||extractChannelId((el.value||'').trim())) : '';})(),
+        skip_channel:                  (function(){const el=document.getElementById('skip_channel');return el ? (el.dataset.id||extractChannelId((el.value||'').trim())) : '';})(),
         delete_on_metadata_fail:       document.getElementById('delete_on_metadata_fail').checked,
     };
 

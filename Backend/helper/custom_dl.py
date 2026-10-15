@@ -216,12 +216,13 @@ class ByteStreamer:
                     LOGGER.warning("Skipping extra client (session setup failed): %s", e)
 
         async def fetch_chunk_with_retries(seq_idx: int, off: int) -> Tuple[int, Optional[bytes]]:
-            slot = seq_idx % len(session_pool)
-            c_idx, c_session, c_loc_box, c_refresh = session_pool[slot]
+            base_slot = seq_idx % len(session_pool)
 
             tries = 0
             flood_tries = 0
             while tries < 3 and flood_tries < 5 and not stop_event.is_set():
+                slot = (base_slot + tries) % len(session_pool)
+                c_idx, c_session, c_loc_box, c_refresh = session_pool[slot]
                 try:
                     r = await asyncio.wait_for(
                         c_session.send(
@@ -229,7 +230,7 @@ class ByteStreamer:
                                 location=c_loc_box[0], offset=off, limit=chunk_size
                             )
                         ),
-                        timeout=15.0,
+                        timeout=12.0,
                     )
                     chunk_bytes = getattr(r, "bytes", None) if r else None
 
