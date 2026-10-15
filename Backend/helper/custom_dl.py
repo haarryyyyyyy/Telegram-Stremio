@@ -198,14 +198,22 @@ class ByteStreamer:
         session_pool = [(client_index, media_session, location_box, primary_refresh)]
 
         if extra_clients:
-            for ec_idx, ec_streamer, ec_file_id in extra_clients:
+            for item in extra_clients:
                 try:
+                    if len(item) == 2:
+                        ec_idx, ec_streamer = item
+                        if chat_id and message_id:
+                            ec_file_id = await ec_streamer.get_file_properties(chat_id=chat_id, message_id=message_id)
+                        else:
+                            ec_file_id = file_id
+                    else:
+                        ec_idx, ec_streamer, ec_file_id = item
                     ec_session = await ec_streamer._get_media_session(ec_file_id)
                     ec_loc_box = [await ByteStreamer._get_location(ec_file_id)]
                     ec_refresh = await _make_refresh_fn(ec_loc_box, ec_streamer, ec_file_id)
                     session_pool.append((ec_idx, ec_session, ec_loc_box, ec_refresh))
                 except Exception as e:
-                    LOGGER.warning("Skipping extra client %s (session setup failed): %s", ec_idx, e)
+                    LOGGER.warning("Skipping extra client (session setup failed): %s", e)
 
         async def fetch_chunk_with_retries(seq_idx: int, off: int) -> Tuple[int, Optional[bytes]]:
             slot = seq_idx % len(session_pool)
@@ -265,25 +273,25 @@ class ByteStreamer:
                 results_buffer = {}
                 next_to_put = 0
                 max_parallel = max(1, parallelism)
-
-                initial = min(part_count, max_parallel)
-                for i in range(initial):
-                    seq = next_to_schedule
-                    off = offset + seq * chunk_size
-                    task = asyncio.create_task(fetch_chunk_with_retries(seq, off))
-                    scheduled_tasks[seq] = task
-                    next_to_schedule += 1
+                max_window = max_parallel + max(1, prefetch)
 
                 while next_to_put < part_count:
                     if stop_event.is_set():
                         break
 
-                    if not scheduled_tasks:
+                    while (
+                        len(scheduled_tasks) < max_parallel
+                        and next_to_schedule < part_count
+                        and (next_to_schedule - next_to_put) < max_window
+                    ):
                         seq = next_to_schedule
                         off = offset + seq * chunk_size
                         task = asyncio.create_task(fetch_chunk_with_retries(seq, off))
                         scheduled_tasks[seq] = task
                         next_to_schedule += 1
+
+                    if not scheduled_tasks:
+                        break
 
                     done, _ = await asyncio.wait(scheduled_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
 
@@ -306,13 +314,6 @@ class ByteStreamer:
                                 return
 
                             results_buffer[seq_idx] = chunk_bytes
-
-                            if next_to_schedule < part_count:
-                                seq = next_to_schedule
-                                off = offset + seq * chunk_size
-                                task = asyncio.create_task(fetch_chunk_with_retries(seq, off))
-                                scheduled_tasks[seq] = task
-                                next_to_schedule += 1
 
                         except asyncio.CancelledError:
                             raise

@@ -1354,7 +1354,8 @@ class Database:
 
     async def _delete_split_part(self, part: dict) -> None:
         try:
-            chat_id = int(f"-100{part['chat_id']}")
+            raw_chat = int(part["chat_id"])
+            chat_id = int(f"-100{raw_chat}") if raw_chat > 0 else raw_chat
             msg_id = int(part["msg_id"])
             create_task(delete_message(chat_id, msg_id))
         except Exception as e:
@@ -2001,7 +2002,8 @@ class Database:
                 for part in decoded["parts"]:
                     await self._delete_split_part(part)
                 return
-            chat_id = int(f"-100{decoded['chat_id']}")
+            raw_chat = int(decoded["chat_id"])
+            chat_id = int(f"-100{raw_chat}") if raw_chat > 0 else raw_chat
             msg_id = int(decoded["msg_id"])
             create_task(delete_message(chat_id, msg_id))
         except Exception as e:

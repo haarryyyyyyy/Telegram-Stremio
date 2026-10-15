@@ -56,6 +56,12 @@ def make_json_safe(obj):
     return obj
 
 
+#----- Normalize a chat ID, prepending -100 only if positive
+def _normalize_chat_id(chat_id) -> int:
+    raw = int(chat_id)
+    return int(f"-100{raw}") if raw > 0 else raw
+
+
 #----- Parse an HTTP Range header into (start, end) bounds
 def parse_range_header(range_header: str, file_size: int):
     if not range_header:
@@ -194,7 +200,7 @@ async def thumb_handler(id: str):
     else:
         try:
             decoded = await decode_string(id)
-            chat_id = int(f"-100{decoded['chat_id']}")
+            chat_id = _normalize_chat_id(decoded["chat_id"])
             msg_id = int(decoded["msg_id"])
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid thumbnail id")
@@ -237,7 +243,7 @@ _SUBTITLE_MIME = {
 async def subtitle_handler(token: str, id: str, name: str, token_data: dict = Depends(verify_token)):
     try:
         decoded = await decode_string(id)
-        chat_id = int(f"-100{decoded['chat_id']}")
+        chat_id = _normalize_chat_id(decoded["chat_id"])
         msg_id = int(decoded["msg_id"])
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid subtitle id")
@@ -305,7 +311,7 @@ async def stream_handler(request: Request, token: str, id: str, name: str, token
     msg_id = decoded.get("msg_id")
     if not msg_id:
         raise HTTPException(status_code=400, detail="Missing id")
-    chat_id = int(f"-100{decoded['chat_id']}")
+    chat_id = _normalize_chat_id(decoded["chat_id"])
     return await media_streamer(
         request=request, chat_id=chat_id, msg_id=int(msg_id),
         token=token, token_data=token_data, stream_id_hash=id,
@@ -326,7 +332,7 @@ async def media_streamer(request: Request, chat_id: int, msg_id: int, token: str
     offset = start - (start % chunk_size)
     first_part_cut = start - offset
     last_part_cut = (end % chunk_size) + 1
-    part_count = math.ceil(end / chunk_size) - math.floor(offset / chunk_size)
+    part_count = (end // chunk_size) - (offset // chunk_size) + 1
     stream_id = secrets.token_hex(8)
     decoded_name = unquote(request.path_params.get("name", ""))
     final_title = await _lookup_title(stream_id_hash, decoded_name)
@@ -475,7 +481,7 @@ async def global_media_streamer(request: Request, chat_id: int, msg_id: int, tok
     offset = start - (start % chunk_size)
     first_part_cut = start - offset
     last_part_cut = (end % chunk_size) + 1
-    part_count = math.ceil(end / chunk_size) - math.floor(offset / chunk_size)
+    part_count = (end // chunk_size) - (offset // chunk_size) + 1
     stream_id = secrets.token_hex(8)
 
     file_name, mime_type = _resolve_filename_mime(file_id)

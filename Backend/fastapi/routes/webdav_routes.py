@@ -221,7 +221,7 @@ async def _stream_video(request: Request, node: VNode, token: str, token_data: d
     msg_id = decoded.get("msg_id")
     if not msg_id:
         raise HTTPException(status_code=400, detail="Missing msg_id in stream id")
-    chat_id = int(f"-100{decoded['chat_id']}")
+    chat_id = sr._normalize_chat_id(decoded["chat_id"])
     return await sr.media_streamer(
         request=request,
         chat_id=chat_id,
