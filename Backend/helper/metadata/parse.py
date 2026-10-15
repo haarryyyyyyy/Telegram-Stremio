@@ -27,6 +27,14 @@ _EXPLICIT_NXNN_RE = re.compile(r"(?i)\b\d{1,2}x\d{2,3}\b")
 _EXPLICIT_SEASON_WORD_RE = re.compile(r"(?i)\b(?:season|series)\s*0*\d{1,2}\b")
 
 
+_LANGUAGE_AUDIO_RE = re.compile(
+    r"(?i)\s*[-._(\[]*\b(?:hindi|tamil|telugu|malayalam|kannada|bengali|punjabi|marathi|gujarati|urdu|bhojpuri|"
+    r"english|french|german|spanish|italian|russian|portuguese|polish|dutch|turkish|"
+    r"japanese|korean|chinese|mandarin|cantonese|thai|vietnamese|indonesian|arabic|"
+    r"dual[\s._-]*audio|multi[\s._-]*audio|multi[\s._-]*sub|dubbed|subbed|true[\s._-]*web[\s._-]*dl)\b.*$",
+)
+
+
 def parse_media_name(name: str) -> dict:
     try:
         ptn = PTN.parse(name) or {}
@@ -46,7 +54,12 @@ def parse_media_name(name: str) -> dict:
     if _guessit:
         try:
             g = _guessit(name)
-            parsed["title"] = parsed["title"] or first(g.get("title"))
+            g_title = first(g.get("title"))
+            if not parsed["title"]:
+                parsed["title"] = g_title
+            elif g_title and isinstance(g_title, str) and len(g_title) > 1:
+                if parsed["title"].lower().startswith(g_title.lower()) and len(g_title) < len(parsed["title"]):
+                    parsed["title"] = g_title
             parsed["year"] = parsed["year"] or first(g.get("year"))
 
             # Only pull season/episode from GuessIt when PTN found neither
@@ -90,7 +103,11 @@ def parse_media_name(name: str) -> dict:
             parsed["quality"] = "480p"
 
     if parsed.get("title") and isinstance(parsed["title"], str):
-        parsed["title"] = parsed["title"].strip(" -_.")
+        cleaned_t = _LANGUAGE_AUDIO_RE.sub("", parsed["title"]).strip(" -_.")
+        if len(cleaned_t) >= 2:
+            parsed["title"] = cleaned_t
+        else:
+            parsed["title"] = parsed["title"].strip(" -_.")
 
     # Normalize season 0 → None (specials folder only, not a real season for routing)
     try:

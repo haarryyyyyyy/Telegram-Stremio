@@ -164,11 +164,9 @@ async def safe_search(title: str, type_: str, year: Optional[int] = None) -> str
         for query in query_variants:
             try:
                 results = await search_title_multi(query=query, type=type_, limit=8)
-                for r in results:
+                for idx, r in enumerate(results):
                     # Cinemeta search rows are thin; still score primary + any alias-like fields
                     aliases = []
-                    for key in ("aka", "aliases", "alternateNames", "genres"):
-                        pass  # genres are not aliases
                     for key in ("aka", "aliases", "alternateNames", "name"):
                         val = r.get(key)
                         if not val or key == "name":
@@ -183,6 +181,11 @@ async def safe_search(title: str, type_: str, year: Optional[int] = None) -> str
                         aliases=aliases,
                         year_reliable=year_reliable, year_lower_bound=is_tv,
                     )
+                    r_year = year_from_str(r.get("year", ""))
+                    # If top Cinemeta result for foreign query matches the year, treat as valid match
+                    if score < CINEMETA_THRESHOLD and idx == 0 and year and r_year and abs(r_year - year) <= 1:
+                        score = 0.85
+
                     if score > best_score:
                         best_score, best_id, best_title = score, r.get("id"), r.get("title", "")
                     if not is_tv and best_score >= STRONG_MATCH:

@@ -58,13 +58,12 @@ async def resolve_movie(
         try:
             detail = await cinemeta.cached_detail(imdb_id, "movie")
             if detail:
-                sim = title_similarity(title, detail.get("title", ""))
-                if sim >= CINEMETA_THRESHOLD or explicit_imdb:
-                    return cinemeta.build_movie_payload(detail, imdb_id, title, quality, encoded_string)
-                LOGGER.info(
-                    f"[MOVIE] Cinemeta title mismatch for '{title}': "
-                    f"got '{detail.get('title')}' (sim={sim:.2f})"
-                )
+                tmdb_id_from_meta = detail.get("moviedb_id")
+                if tmdb_id_from_meta:
+                    movie = await tmdb.details("movie", tmdb_id_from_meta)
+                    if movie:
+                        return tmdb.build_movie_payload(movie, quality, encoded_string)
+                return cinemeta.build_movie_payload(detail, imdb_id, title, quality, encoded_string)
         except Exception as e:
             LOGGER.warning(f"Cinemeta movie fetch failed [{title}]: {e}")
 
@@ -123,14 +122,14 @@ async def resolve_series(
             detail = await cinemeta.cached_detail(imdb_id, "tvSeries")
             ep = await cinemeta.cached_season(imdb_id, season, episode)
             if detail:
-                sim = title_similarity(title, detail.get("title", ""))
-                if sim >= CINEMETA_THRESHOLD or explicit_imdb:
-                    return cinemeta.build_tv_payload(
-                        detail, ep or {}, imdb_id, title, season, episode, quality, encoded_string
-                    )
-                LOGGER.info(
-                    f"[SERIES] Cinemeta title mismatch for '{title}': "
-                    f"got '{detail.get('title')}' (sim={sim:.2f})"
+                tmdb_id_from_meta = detail.get("moviedb_id")
+                if tmdb_id_from_meta:
+                    tv = await tmdb.details("tv", tmdb_id_from_meta)
+                    if tv:
+                        ep_tmdb = await tmdb.episode_details(tmdb_id_from_meta, season, episode)
+                        return tmdb.build_tv_payload(tv, ep_tmdb, season, episode, quality, encoded_string)
+                return cinemeta.build_tv_payload(
+                    detail, ep or {}, imdb_id, title, season, episode, quality, encoded_string
                 )
         except Exception as e:
             LOGGER.warning(f"Cinemeta TV fetch failed [{title}]: {e}")

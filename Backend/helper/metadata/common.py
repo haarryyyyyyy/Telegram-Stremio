@@ -241,6 +241,17 @@ def build_query_variants(title: str, year: Optional[int] = None) -> list:
     no_article = re.sub(r"^\b(the|a|an)\b\s+", "", title, flags=re.IGNORECASE).strip()
     if no_article and no_article.lower() != title.lower():
         variants.append(no_article)
+    # Support dual-language / mixed script titles (e.g. "Parasite 기생충")
+    latin_part = re.sub(r"\s+", " ", re.sub(r"[^\x00-\x7F]+", " ", title)).strip(" -_.")
+    if len(latin_part) >= 2 and latin_part.lower() != title.lower():
+        variants.append(latin_part)
+        if year:
+            variants.append(f"{latin_part} {year}")
+    non_latin_part = re.sub(r"\s+", " ", re.sub(r"[a-zA-Z0-9]+", " ", title)).strip(" -_.")
+    if len(non_latin_part) >= 2 and non_latin_part.lower() != title.lower():
+        variants.append(non_latin_part)
+        if year:
+            variants.append(f"{non_latin_part} {year}")
     seen: set = set()
     ordered = []
     for v in variants:

@@ -23,6 +23,7 @@ from Backend.helper.metadata.common import (
     format_tmdb_image,
     score_candidate,
     score_candidate_aliases,
+    build_query_variants,
 )
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
@@ -100,23 +101,17 @@ def tmdb_title_year(item, media_type: str) -> tuple:
 async def raw_search(title: str, media_type: str, year: Optional[int]):
     client = get_tmdb_client()
     async with API_SEMAPHORE:
-        if media_type == "movie":
-            results = await (
-                client.search().movies(query=title, year=year)
-                if year
-                else client.search().movies(query=title)
-            )
+        search_fn = client.search().movies if media_type == "movie" else client.search().tv
+        kwargs = {"year": year} if (year and media_type == "movie") else ({"first_air_date_year": year} if year else {})
+        variants = build_query_variants(title)
+        results = None
+        for v in variants:
+            results = await search_fn(query=v, **kwargs) if year else await search_fn(query=v)
             if not results and year:
-                results = await client.search().movies(query=title)
-            return results
-        results = await (
-            client.search().tv(query=title, first_air_date_year=year)
-            if year
-            else client.search().tv(query=title)
-        )
-        if not results and year:
-            results = await client.search().tv(query=title)
-        return results
+                results = await search_fn(query=v)
+            if results:
+                break
+        return results or []
 
 
 async def _tmdb_alternative_titles(media_type: str, tmdb_id) -> list:
@@ -131,8 +126,18 @@ async def _tmdb_alternative_titles(media_type: str, tmdb_id) -> list:
             async with API_SEMAPHORE:
                 target = client.movie(tmdb_id) if media_type == "movie" else client.tv(tmdb_id)
                 alt = await target.alternative_titles()
-            entries = list(getattr(alt, "titles", None) or []) + list(getattr(alt, "results", None) or [])
-            titles = [t for t in (getattr(e, "title", "") for e in entries) if t]
+                entries = list(getattr(alt, "titles", None) or []) + list(getattr(alt, "results", None) or [])
+                titles = [t for t in (getattr(e, "title", "") for e in entries) if t]
+                try:
+                    trans = await target.translations()
+                    for tr in (getattr(trans, "translations", []) or []):
+                        data = getattr(tr, "data", None)
+                        if data:
+                            t_val = getattr(data, "title", None) or getattr(data, "name", None)
+                            if t_val and t_val not in titles:
+                                titles.append(t_val)
+                except Exception:
+                    pass
         except Exception as e:
             LOGGER.warning(f"TMDb alternative-titles fetch failed for {media_type} id={tmdb_id}: {e}")
         return titles
@@ -147,40 +152,48 @@ async def pick_best(results, query_title: str, query_year: Optional[int], media_
     year_lower_bound = not year_reliable
     scored = []
     best_item, best_score = None, 0.0
+    variants = build_query_variants(query_title)
     for item in results:
         r_title, r_year = tmdb_title_year(item, media_type)
-        # original_title / original_name also counts as an alias
         orig = getattr(item, "original_title", None) or getattr(item, "original_name", None) or ""
-        score = score_candidate_aliases(
-            query_title, query_year, r_title, r_year,
-            aliases=[orig] if orig and orig != r_title else None,
-            year_reliable=year_reliable, year_lower_bound=year_lower_bound,
-        )
-        scored.append((score, item, r_year))
-        if score > best_score:
-            best_score, best_item = score, item
+        aliases = [orig] if orig and orig != r_title else None
+        item_best = 0.0
+        for q in variants:
+            score = score_candidate_aliases(
+                q, query_year, r_title, r_year,
+                aliases=aliases,
+                year_reliable=year_reliable, year_lower_bound=year_lower_bound,
+            )
+            if score > item_best:
+                item_best = score
+        scored.append((item_best, item, r_year))
+        if item_best > best_score:
+            best_score, best_item = item_best, item
 
     if best_score >= STRONG_MATCH:
         return best_item
 
-    # Fetch official alternative titles for top candidates
+    # Fetch official alternative titles and translations for top candidates
     scored.sort(key=lambda x: x[0], reverse=True)
     for _, item, r_year in scored[:ALT_TITLE_LOOKUPS]:
         r_title, _ = tmdb_title_year(item, media_type)
         orig = getattr(item, "original_title", None) or getattr(item, "original_name", None) or ""
         alt_titles = await _tmdb_alternative_titles(media_type, getattr(item, "id", None))
         aliases = list(alt_titles or [])
-        if orig:
+        if orig and orig not in aliases:
             aliases.append(orig)
-        alt_score = score_candidate_aliases(
-            query_title, query_year, r_title, r_year,
-            aliases=aliases,
-            year_reliable=year_reliable, year_lower_bound=year_lower_bound,
-        )
-        if alt_score > best_score:
-            best_score, best_item = alt_score, item
-            if best_score >= STRONG_MATCH:
-                break
+        for q in variants:
+            alt_score = score_candidate_aliases(
+                q, query_year, r_title, r_year,
+                aliases=aliases,
+                year_reliable=year_reliable, year_lower_bound=year_lower_bound,
+            )
+            if alt_score > best_score:
+                best_score, best_item = alt_score, item
+                if best_score >= STRONG_MATCH:
+                    break
+        if best_score >= STRONG_MATCH:
+            break
 
     return best_item if best_score >= TMDB_THRESHOLD and best_item is not None else None
 
