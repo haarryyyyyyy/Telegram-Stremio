@@ -197,11 +197,9 @@ async def edit_media_page(request: Request, tmdb_id: int, db_index: int, media_t
     return templates.TemplateResponse(request=request, name="media_edit.html", context=ctx)
 
 
-#----- Subscription management shell
+#----- Redirect legacy subscriptions URL to dashboard
 async def admin_subscriptions_page(request: Request, _: bool = Depends(require_auth)):
-    ctx = _base_context(request)
-    ctx["current_user"] = get_current_user(request)
-    return templates.TemplateResponse(request=request, name="subscriptions_manage.html", context=ctx)
+    return RedirectResponse(url="/admin/dashboard", status_code=302)
 
 
 #----- Access management shell
