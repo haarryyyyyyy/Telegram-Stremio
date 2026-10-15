@@ -104,10 +104,13 @@ def parse_media_name(name: str) -> dict:
 
 def apply_combined_override(payload: dict, combined: dict) -> None:
     season, start, end = combined["season"], combined["start"], combined["end"]
-    payload["season_number"] = COMBINED_SEASON
-    payload["episode_number"] = COMBINED_EPISODE_BASE + season
-    payload["episode_title"] = f"Season {season} Combined"
+    payload["season_number"] = season
+    payload["episode_number"] = start if start is not None else 1
+    payload["is_combined"] = True
+    payload["combined_start"] = start
+    payload["combined_end"] = end
     label = "Full" if start is None else f"E{start:02d}-E{end:02d}"
+    payload["episode_title"] = f"Season {season} Complete" if start is None else f"Season {season} E{start:02d}-E{end:02d}"
     payload["quality"] = f"{payload.get('quality') or 'HD'} {label}"
     if not payload.get("episode_backdrop"):
         payload["episode_backdrop"] = payload.get("backdrop") or payload.get("poster") or ""

@@ -92,7 +92,8 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
                 info["duration"] = round(now - info.get("start_ts", now), 1)
                 info["stream_id"] = sid
                 try:
-                    RECENT_STREAMS.appendleft(info)
+                    if info.get("total_bytes", 0) > 0 and not info.get("meta", {}).get("is_internal") and info.get("meta", {}).get("title") not in ("zip-index", "zip index"):
+                        RECENT_STREAMS.appendleft(info)
                     ACTIVE_STREAMS.pop(sid)
                 except KeyError:
                     pass
@@ -115,6 +116,7 @@ async def dashboard_page(request: Request, _: bool = Depends(require_auth)):
                 "meta": info.get("meta", {})
             }
             for stream_id, info in ACTIVE_STREAMS.items()
+            if not info.get("meta", {}).get("is_internal") and info.get("meta", {}).get("title") not in ("zip-index", "zip index")
         ]
 
         cluster_nodes = await db.get_cluster_nodes()

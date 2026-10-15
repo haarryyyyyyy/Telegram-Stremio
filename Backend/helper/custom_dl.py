@@ -45,9 +45,10 @@ async def _cleanup_stale_streams():
                     if entry:
                         entry["status"] = "stale"
                         entry["end_ts"] = now
-                        RECENT_STREAMS.appendleft(entry)
+                        if entry.get("total_bytes", 0) > 0 and not entry.get("meta", {}).get("is_internal") and entry.get("meta", {}).get("title") not in ("zip-index", "zip index"):
+                            RECENT_STREAMS.appendleft(entry)
                         idx = entry.get("client_index")
-                        if idx is not None and idx in work_loads:
+                        if idx is not None and idx in work_loads and not entry.get("meta", {}).get("is_internal"):
                             work_loads[idx] = max(0, work_loads[idx] - 1)
                 except Exception:
                     pass
@@ -167,9 +168,11 @@ class ByteStreamer:
             "meta": meta or {},
         }
 
-        ACTIVE_STREAMS[stream_id] = registry_entry
+        is_internal = bool(meta and meta.get("is_internal"))
+        if not is_internal:
+            ACTIVE_STREAMS[stream_id] = registry_entry
+            work_loads[client_index] += 1
         stream_entry = registry_entry
-        work_loads[client_index] += 1
 
         queue_maxsize = max(1, prefetch)
         q: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
@@ -477,22 +480,26 @@ class ByteStreamer:
                     else:
                         client_avg_mbps[client_index] = 0.5 * prev + 0.5 * avg_mbps
 
-                    asyncio.create_task(db.log_stream_stats(stream_entry))
+                    if not is_internal and stream_entry.get("meta", {}).get("title") not in ("zip-index", "zip index") and total_bytes > 0:
+                        asyncio.create_task(db.log_stream_stats(stream_entry))
 
                     async def delayed_pop():
                         await asyncio.sleep(3)
                         try:
                             if stream_id in ACTIVE_STREAMS:
-                                RECENT_STREAMS.appendleft(ACTIVE_STREAMS.pop(stream_id))
+                                popped = ACTIVE_STREAMS.pop(stream_id)
+                                if popped.get("total_bytes", 0) > 0 and not popped.get("meta", {}).get("is_internal") and popped.get("meta", {}).get("title") not in ("zip-index", "zip index"):
+                                    RECENT_STREAMS.appendleft(popped)
                         except Exception:
                             pass
 
                     asyncio.create_task(delayed_pop())
                 finally:
-                    try:
-                        work_loads[client_index] -= 1
-                    except Exception:
-                        pass
+                    if not is_internal:
+                        try:
+                            work_loads[client_index] -= 1
+                        except Exception:
+                            pass
 
                 stop_event.set()
 

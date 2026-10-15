@@ -1029,7 +1029,7 @@ async def get_streams(
 
     streams = []
 
-    is_combined = season_num == COMBINED_SEASON and episode_num is not None and episode_num >= COMBINED_EPISODE_BASE
+    is_combined = (season_num == COMBINED_SEASON and episode_num is not None and episode_num >= COMBINED_EPISODE_BASE) or bool(media_details and media_details.get("is_combined"))
 
     if media_details and "telegram" in media_details:
         for quality in media_details.get("telegram", []):
@@ -1040,6 +1040,12 @@ async def get_streams(
                 size_bytes = parse_size_to_bytes(size)
 
                 combined = parse_combined_episodes(filename) if is_combined else None
+                if not combined and is_combined and media_details.get("is_combined"):
+                    combined = {
+                        "season": media_details.get("season_number", season_num),
+                        "start": media_details.get("combined_start"),
+                        "end": media_details.get("combined_end"),
+                    }
                 episode_start = combined.get("start") or 0 if combined else 0
                 name_key = combined_name_key(filename) if combined else ""
 

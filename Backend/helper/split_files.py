@@ -71,7 +71,7 @@ def parse_combined_episodes(filename: str) -> Optional[dict]:
         if 1 <= start < end <= 99:
             return {"season": _combined_season(filename) or 1, "start": start, "end": end}
 
-    if _COMBINED_KEYWORD_RE.search(filename):
+    if _COMBINED_KEYWORD_RE.search(filename) or re.search(r"\b(?:complete|batch|all[\s._-]*episodes?)\b", filename, re.IGNORECASE):
         season = _combined_season(filename)
         if season is not None:
             return {"season": season, "start": None, "end": None}

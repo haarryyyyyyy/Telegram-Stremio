@@ -1346,6 +1346,9 @@ class Database:
                         overview=metadata_info['episode_overview'],
                         released=metadata_info['episode_released'],
                         absolute_episode=absolute_episode,
+                        is_combined=metadata_info.get('is_combined'),
+                        combined_start=metadata_info.get('combined_start'),
+                        combined_end=metadata_info.get('combined_end'),
                         telegram=[quality_detail]
                     )]
                 )]
@@ -1621,6 +1624,13 @@ class Database:
                 if episode.get("absolute_episode") is not None and not existing_episode.get("absolute_episode"):
                     existing_episode["absolute_episode"] = episode["absolute_episode"]
 
+                if episode.get("is_combined"):
+                    existing_episode["is_combined"] = True
+                    if episode.get("combined_start") is not None:
+                        existing_episode["combined_start"] = episode["combined_start"]
+                    if episode.get("combined_end") is not None:
+                        existing_episode["combined_end"] = episode["combined_end"]
+
                 existing_episode.setdefault("telegram", [])
 
                 for quality in episode["telegram"]:
@@ -1852,6 +1862,49 @@ class Database:
                                         "db_index": db_idx
                                     })
                                     return details
+                            # Fallback: check if a combined season file covers this episode
+                            for episode in season.get("episodes", []):
+                                c_start = episode.get("combined_start")
+                                c_end = episode.get("combined_end")
+                                is_comb = bool(episode.get("is_combined")) or (c_start is not None or c_end is not None)
+                                if is_comb:
+                                    if (c_start is None and c_end is None) or (c_start and c_end and c_start <= episode_number <= c_end):
+                                        details = convert_objectid_to_str(episode)
+                                        details.update({
+                                            "imdb_id": tv_show.get("imdb_id") or imdb_id,
+                                            "kitsu_id": tv_show.get("kitsu_id") or kitsu_id,
+                                            "type": "tv",
+                                            "title": tv_show.get("title"),
+                                            "is_anime": tv_show.get("is_anime"),
+                                            "season_number": season_number,
+                                            "episode_number": episode_number,
+                                            "absolute_episode": episode.get("absolute_episode"),
+                                            "backdrop": episode.get("episode_backdrop"),
+                                            "db_index": db_idx,
+                                            "is_combined": True,
+                                        })
+                                        return details
+                    # Legacy fallback: check if filed under season 0 as episode 1000 + season_number
+                    if season_number != 0:
+                        for season in tv_show.get("seasons", []):
+                            if season.get("season_number") == 0:
+                                for episode in season.get("episodes", []):
+                                    if episode.get("episode_number") == 1000 + season_number:
+                                        details = convert_objectid_to_str(episode)
+                                        details.update({
+                                            "imdb_id": tv_show.get("imdb_id") or imdb_id,
+                                            "kitsu_id": tv_show.get("kitsu_id") or kitsu_id,
+                                            "type": "tv",
+                                            "title": tv_show.get("title"),
+                                            "is_anime": tv_show.get("is_anime"),
+                                            "season_number": season_number,
+                                            "episode_number": episode_number,
+                                            "absolute_episode": episode.get("absolute_episode"),
+                                            "backdrop": episode.get("episode_backdrop"),
+                                            "db_index": db_idx,
+                                            "is_combined": True,
+                                        })
+                                        return details
             
             elif season_number is not None and absolute_episode is None:
                 tv_show = await _find_doc(self.dbs[db_key]["tv"])
@@ -2493,16 +2546,21 @@ class Database:
     async def log_stream_stats(self, stats: dict) -> None:
         #----- Persist a finished-stream record to the tracking DB for analytics
         try:
+            meta = stats.get("meta") or {}
+            total_bytes = stats.get("total_bytes", 0)
+            title = meta.get("title") or stats.get("title")
+            if meta.get("is_internal") or total_bytes <= 0 or title in ("zip-index", "zip index"):
+                return
             record = {
                 "stream_id":   stats.get("stream_id"),
                 "msg_id":      stats.get("msg_id"),
                 "chat_id":     stats.get("chat_id"),
                 "dc_id":       stats.get("dc_id"),
-                "title":       stats.get("meta", {}).get("title"),  #----- Added title
-                "user_name":   stats.get("meta", {}).get("user_name"),
-                "token":       stats.get("meta", {}).get("token"),
+                "title":       title,
+                "user_name":   meta.get("user_name"),
+                "token":       meta.get("token"),
                 "client_index": stats.get("client_index"),
-                "total_bytes": stats.get("total_bytes", 0),
+                "total_bytes": total_bytes,
                 "duration_sec": round(stats.get("duration", 0.0), 2),
                 "avg_mbps":    round(stats.get("avg_mbps", 0.0), 3),
                 "peak_mbps":   round(stats.get("peak_mbps", 0.0), 3),
@@ -2512,8 +2570,8 @@ class Database:
                 "logged_at":   datetime.now(timezone.utc),
             }
             await self.dbs["tracking"]["stream_analytics"].insert_one(record)
-            token = stats.get("meta", {}).get("token")
-            if token:
+            token = meta.get("token")
+            if token and total_bytes > 0:
                 upd = {"last_active": datetime.now(timezone.utc)}
                 if record.get("title"):
                     upd["last_title"] = record["title"]
@@ -2529,9 +2587,16 @@ class Database:
         #----- Return summary stats + recent stream records from the tracking DB
         try:
             col = self.dbs["tracking"]["stream_analytics"]
+            try:
+                await col.delete_many({"title": {"$in": ["zip-index", "zip index"]}})
+            except Exception:
+                pass
+
+            ignored_titles = [None, "", "zip-index", "zip index"]
 
             #----- Aggregate totals
             pipeline = [
+                {"$match": {"title": {"$nin": ["zip-index", "zip index"]}}},
                 {"$group": {
                     "_id": None,
                     "total_streams":     {"$sum": 1},
@@ -2547,6 +2612,7 @@ class Database:
 
             #----- Per-client breakdown
             per_client_pipeline = [
+                {"$match": {"title": {"$nin": ["zip-index", "zip index"]}}},
                 {"$group": {
                     "_id":          "$client_index",
                     "streams":      {"$sum": 1},
@@ -2564,7 +2630,7 @@ class Database:
 
             #----- Recent records (newest first)
             recent_cursor = col.find(
-                {},
+                {"title": {"$nin": ["zip-index", "zip index"]}},
                 {"_id": 0, "stream_id": 1, "client_index": 1, "dc_id": 1,
                  "total_bytes": 1, "duration_sec": 1, "avg_mbps": 1,
                  "peak_mbps": 1, "status": 1, "logged_at": 1, "title": 1}
@@ -2579,7 +2645,7 @@ class Database:
 
             #----- Most-streamed titles
             top_titles = await col.aggregate([
-                {"$match": {"title": {"$nin": [None, ""]}}},
+                {"$match": {"title": {"$nin": ignored_titles}}},
                 {"$group": {"_id": "$title", "streams": {"$sum": 1}, "total_bytes": {"$sum": "$total_bytes"}}},
                 {"$sort": {"streams": -1}},
                 {"$limit": 8},

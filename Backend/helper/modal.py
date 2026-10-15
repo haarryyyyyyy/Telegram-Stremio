@@ -28,6 +28,9 @@ class Episode(BaseModel):
     overview: Optional[str] = None
     released: Optional[str] = None
     absolute_episode: Optional[int] = None
+    is_combined: Optional[bool] = None
+    combined_start: Optional[int] = None
+    combined_end: Optional[int] = None
     telegram: Optional[List[QualityDetail]]
 
 

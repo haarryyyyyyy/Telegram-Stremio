@@ -337,6 +337,11 @@ async def media_streamer(request: Request, chat_id: int, msg_id: int, token: str
     decoded_name = unquote(request.path_params.get("name", ""))
     final_title = await _lookup_title(stream_id_hash, decoded_name)
     file_name, mime_type = _resolve_filename_mime(file_id)
+    headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
+
+    if request.method == "HEAD":
+        return PlainResponse(status_code=status, headers=headers)
+
     meta = {
         "request_path": str(request.url.path),
         "client_host": request.client.host if request.client else None,
@@ -384,11 +389,6 @@ async def media_streamer(request: Request, chat_id: int, msg_id: int, token: str
     )
 
     asyncio.create_task(track_usage(stream_id, token, token_data))
-
-    headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
-
-    if request.method == "HEAD":
-        return PlainResponse(status_code=status, headers=headers)
     return StreamingResponse(body_gen, headers=headers, status_code=status, media_type=mime_type)
 
 
@@ -421,6 +421,11 @@ async def virtual_media_streamer(request: Request, parts_payload: list, token: s
         "split_parts": len(parts),
     }
 
+    common_headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
+
+    if request.method == "HEAD":
+        return PlainResponse(status_code=status, headers=common_headers)
+
     token_count = len(multi_clients) - 1
     parallelism, prefetch_count = get_parallel_prefetch(token_count)
     extra_clients_for_stream = []
@@ -432,11 +437,6 @@ async def virtual_media_streamer(request: Request, parts_payload: list, token: s
             extra_clients_for_stream.append((ec_idx, ec_streamer))
 
     asyncio.create_task(track_usage(stream_id, token, token_data))
-
-    common_headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
-
-    if request.method == "HEAD":
-        return PlainResponse(status_code=status, headers=common_headers)
 
     body_gen = virtual_stream_generator(
         parts=parts, start=start, end=end, chunk_size=chunk_size,
@@ -495,12 +495,12 @@ async def global_media_streamer(request: Request, chat_id: int, msg_id: int, tok
         "global_search": True,
     }
 
-    asyncio.create_task(track_usage(stream_id, token, token_data))
-
     headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
 
     if request.method == "HEAD":
         return PlainResponse(status_code=status, headers=headers)
+
+    asyncio.create_task(track_usage(stream_id, token, token_data))
 
     body_gen = await streamer.prefetch_stream(
         file_id=file_id,
@@ -551,12 +551,12 @@ async def global_virtual_media_streamer(request: Request, parts_payload: list, t
         "split_parts": len(parts),
     }
 
-    asyncio.create_task(track_usage(stream_id, token, token_data))
-
     headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
 
     if request.method == "HEAD":
         return PlainResponse(status_code=status, headers=headers)
+
+    asyncio.create_task(track_usage(stream_id, token, token_data))
 
     body_gen = virtual_stream_generator(
         parts=parts, start=start, end=end, chunk_size=chunk_size,
@@ -572,7 +572,7 @@ async def _read_virtual_range(parts, start, length, streamer, request, client_in
     gen = virtual_stream_generator(
         parts=parts, start=start, end=start + length - 1, chunk_size=1024 * 1024,
         streamer=streamer, client_index=client_index, request=request,
-        meta={"title": "zip-index", "user_name": "system", "token": ""},
+        meta={"title": "zip-index", "user_name": "system", "token": "", "is_internal": True},
         stream_id=secrets.token_hex(6), parallelism=parallelism, prefetch_count=prefetch_count,
     )
     try:
@@ -629,11 +629,11 @@ async def _zip_media_streamer(request, parts_payload, token, token_data, stream_
         "token": token,
         "zip_parts": len(parts),
     }
-    asyncio.create_task(track_usage(stream_id, token, token_data))
-
     headers, status = _build_stream_headers(mime_type, inner_name, req_length, range_header, start, end, inner_size)
     if request.method == "HEAD":
         return PlainResponse(status_code=status, headers=headers)
+
+    asyncio.create_task(track_usage(stream_id, token, token_data))
 
     body_gen = virtual_stream_generator(
         parts=parts, start=data_offset + start, end=data_offset + end, chunk_size=1024 * 1024,
@@ -688,7 +688,9 @@ async def get_stream_stats():
             last_ts = info.get("end_ts", info.get("last_activity_ts", now))
             if now - last_ts > PRUNE_SECONDS:
                 try:
-                    RECENT_STREAMS.appendleft(ACTIVE_STREAMS.pop(sid))
+                    stream_obj = ACTIVE_STREAMS.pop(sid)
+                    if stream_obj.get("total_bytes", 0) > 0 and not stream_obj.get("meta", {}).get("is_internal") and stream_obj.get("meta", {}).get("title") not in ("zip-index", "zip index"):
+                        RECENT_STREAMS.appendleft(stream_obj)
                 except KeyError:
                     pass
 
@@ -712,6 +714,7 @@ async def get_stream_stats():
             "meta": info.get("meta", {}),
         }
         for sid, info in ACTIVE_STREAMS.items()
+        if not info.get("meta", {}).get("is_internal") and info.get("meta", {}).get("title") not in ("zip-index", "zip index")
     ]
     recent = [
         {
@@ -733,6 +736,7 @@ async def get_stream_stats():
             "meta": info.get("meta", {}),
         }
         for info in RECENT_STREAMS
+        if not info.get("meta", {}).get("is_internal") and info.get("meta", {}).get("title") not in ("zip-index", "zip index") and info.get("total_bytes", 0) > 0
     ]
     return JSONResponse({
         "active_streams": active,
