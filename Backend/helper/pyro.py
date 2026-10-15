@@ -38,7 +38,26 @@ _DECORATION_PATTERN = re.compile(
 
 #----- Telegram / social-media channel tag patterns
 _CHANNEL_TAG_PATTERN = re.compile(
-    r"_@[A-Za-z]+_|@[A-Za-z]+_|[\[\]\s@]*@[^.\s\[\]]+[\]\[\s@]*"
+    r"(?i)(?:\[|\{|\()?\s*(?:tg|telegram|join|channel|from|via|credit[s]?|owner)?\s*:\s*@\w+\s*(?:\]|\}|\))?|_@\w+_|@\w{3,}"
+)
+
+#----- Promotional prefixes and phrasing commonly prepended in Telegram captions/files
+_PROMO_PATTERN = re.compile(
+    r"(?i)\b(?:join\s*(?:us\s*on|our)?\s*(?:telegram)?\s*(?:channel|group|backup)?|"
+    r"uploaded\s*by|downloaded\s*from|exclusive\s*on|powered\s*by|shared\s*by|"
+    r"encoded\s*by|official\s*channel|for\s+(?:more\s+)?(?:movies|series|episodes|updates?|links?)|"
+    r"backup\s*channel)\b"
+)
+
+#----- Leading site/domain prefixes like 'www.1TamilMV.cz - ' or 'Tamilblasters.ph - '
+_DOMAIN_PREFIX_PATTERN = re.compile(
+    r"(?i)^\s*(?:www\.)?[A-Za-z0-9-]+\.(?:cz|com|org|net|in|io|co|me|cc|to|is|site|xyz|ph|run|vip|app|link|pm|tf|wf)\s*[-–—:|]\s*"
+)
+
+_QUALITY_TAGS = re.compile(r"(?i)(?:480|720|1080|2160|4k|uhd|fhd|hevc|x264|x265|dvd|bluray|web-?dl|hdtv)")
+
+_MEDIA_CUE_PATTERN = re.compile(
+    r"(?i)(?:19\d{2}|20\d{2}|480p|720p|1080p|2160p|4k|uhd|fhd|hevc|x26[45]|h\.?26[45]|s\d{1,2}[._\s-]*e\d{1,3}|\d{1,2}x\d{2,3}|\.(?:mkv|mp4|avi|webm|ts|m2ts))"
 )
 
 _CODEC_TAG_PATTERN = re.compile(
@@ -208,43 +227,86 @@ def get_readable_file_size(size_in_bytes):
     return f'{size_in_bytes:.2f}{SIZE_UNITS[index]}' if index > 0 else f'{size_in_bytes:.0f}B'
 
 
-def remove_urls(text):
+def remove_urls(text: str) -> str:
     if not text:
         return ""
 
-    url_pattern = r'\b(?:(?:https?|ftp):\/\/|www\.)[^\s/$.?#].[^\s]*'
-    text_without_urls = re.sub(url_pattern, '', text)
-    cleaned_text = re.sub(r'\s+', ' ', text_without_urls).strip()
+    url_pattern = r"(?i)\b(?:(?:https?|ftp):\/\/|www\.)\S+|\b(?:t(?:elegram)?\.(?:me|dog)|tg:\/\/)\S+"
+    text_without_urls = re.sub(url_pattern, "", text)
+    cleaned_text = re.sub(r"\s+", " ", text_without_urls).strip()
 
     return cleaned_text
+
 
 def clean_filename(filename: str) -> str:
     if not filename:
         return "unknown_file"
 
-    #----- 1 – Strip URLs that captions sometimes prepend
+    #----- 1 – Strip URLs (including t.me/...) that captions/files prepend
     filename = remove_urls(filename)
-    
-    #----- 2 – Remove emoji sequences
+
+    #----- 2 – Remove leading site/domain prefixes (e.g. 1TamilMV.cz - )
+    filename = _DOMAIN_PREFIX_PATTERN.sub(" ", filename)
+
+    #----- 3 – Remove emoji sequences
     filename = _EMOJI_PATTERN.sub(" ", filename)
 
-    #----- 3 – Remove decorative unicode symbols
+    #----- 4 – Remove decorative unicode symbols
     filename = _DECORATION_PATTERN.sub(" ", filename)
 
-    #----- 4 – Replace any remaining non-ASCII characters with a space.
-    #----- Keep standard filename-safe characters: alphanumerics, . - _ ( ) [ ] ' " , : ! ? & + @
+    #----- 5 – Remove Telegram channel tags (@ChannelName, [TG: @Channel], etc.)
+    filename = _CHANNEL_TAG_PATTERN.sub(" ", filename)
+
+    #----- 6 – Remove promotional prefix phrases (Uploaded by, Join channel, etc.)
+    filename = _PROMO_PATTERN.sub(" ", filename)
+
+    #----- 7 – Strip leading non-quality bracket tags (e.g. [ChannelName] Title)
+    m = re.match(r"^\s*\[([^\]]+)\]\s*", filename)
+    if m and not _QUALITY_TAGS.search(m.group(1)):
+        filename = filename[m.end():]
+
+    #----- 8 – Replace any remaining non-ASCII characters with a space
     filename = re.sub(r"[^\x20-\x7E]", " ", filename)
 
-    #----- 5 – Remove Telegram channel tags  (@ChannelName_ etc.)
-    filename = _CHANNEL_TAG_PATTERN.sub("", filename)
-
-    #----- 6 – Remove codec / source tags that clutter the title region
+    #----- 9 – Remove codec / source tags that clutter the title region
     filename = _CODEC_TAG_PATTERN.sub(" ", filename)
 
-    #----- 7 – Collapse multiple spaces; remove space before extension dot
+    #----- 10 – Strip leading separators / punctuation left behind by removed prefixes
+    filename = re.sub(r"^[-–—:|._\s]+", "", filename)
+
+    #----- 11 – Collapse multiple spaces; remove space before extension dot
     filename = re.sub(r"\s+", " ", filename).strip().replace(" .", ".")
 
     return filename if filename else "unknown_file"
+
+
+def extract_media_name(caption: Optional[str], file_name: Optional[str]) -> str:
+    cap = (caption or "").strip()
+    fn = (file_name or "").strip()
+    if not cap:
+        return fn or "unknown_file"
+    if not fn:
+        return cap
+    if cap == fn:
+        return fn
+
+    cap_has_cues = bool(_MEDIA_CUE_PATTERN.search(cap))
+    fn_has_cues = bool(_MEDIA_CUE_PATTERN.search(fn))
+
+    # If filename has clear video/season/quality cues but caption is promotional text
+    if fn_has_cues and not cap_has_cues:
+        return fn
+
+    # If caption has multiple lines, isolate the line containing actual media cues
+    lines = [l.strip() for l in cap.splitlines() if l.strip()]
+    if len(lines) > 1:
+        matching_lines = [l for l in lines if _MEDIA_CUE_PATTERN.search(l)]
+        if matching_lines:
+            return matching_lines[0]
+        if fn_has_cues:
+            return fn
+
+    return cap or fn or "unknown_file"
 
 
 def get_readable_time(seconds: int) -> str:

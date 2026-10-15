@@ -109,7 +109,14 @@ async def raw_search(title: str, media_type: str, year: Optional[int]):
             if not results and year:
                 results = await client.search().movies(query=title)
             return results
-        return await client.search().tv(query=title)
+        results = await (
+            client.search().tv(query=title, first_air_date_year=year)
+            if year
+            else client.search().tv(query=title)
+        )
+        if not results and year:
+            results = await client.search().tv(query=title)
+        return results
 
 
 async def _tmdb_alternative_titles(media_type: str, tmdb_id) -> list:
@@ -179,13 +186,11 @@ async def pick_best(results, query_title: str, query_year: Optional[int], media_
 
 
 async def safe_search(title: str, type_: str, year: Optional[int] = None):
-    is_tv = type_ != "movie"
-    search_year = None if is_tv else year
     cache_key = f"tmdb_search::{type_}::{title}::{year}"
 
     async def _produce():
         try:
-            results = await raw_search(title, type_, search_year)
+            results = await raw_search(title, type_, year)
             best = await pick_best(results, title, year, type_)
             if best is None and results:
                 top = results[0]

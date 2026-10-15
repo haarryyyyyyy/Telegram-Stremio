@@ -12,11 +12,11 @@ from rapidfuzz import fuzz
 from Backend.logger import LOGGER
 
 # Match thresholds
-CINEMETA_THRESHOLD = 0.60
-TMDB_THRESHOLD = 0.55
-TVDB_THRESHOLD = 0.55
-KITSU_THRESHOLD = 0.55
-STRONG_MATCH = 0.92
+CINEMETA_THRESHOLD = 0.65
+TMDB_THRESHOLD = 0.65
+TVDB_THRESHOLD = 0.65
+KITSU_THRESHOLD = 0.65
+STRONG_MATCH = 0.90
 ALT_TITLE_LOOKUPS = 5
 
 # Combined-file constants (Specials season)
@@ -133,19 +133,30 @@ def score_candidate(
 
     if query_year and result_year:
         if year_lower_bound:
-            if int(query_year) >= result_year and score >= 0.80:
-                score += 0.15 / (1 + (int(query_year) - result_year) * 0.1)
+            if int(query_year) >= result_year and score >= 0.70:
+                diff = int(query_year) - result_year
+                if diff == 0:
+                    score = min(1.0, score + 0.20)
+                elif diff <= 5:
+                    score = min(1.0, score + 0.05)
+                elif diff > 15:
+                    score = max(0.0, score - 0.10)
+            elif int(query_year) < result_year:
+                # Query year precedes series premiere - penalize impossible/mismatched year
+                diff = result_year - int(query_year)
+                if diff > 1:
+                    score = max(0.0, score - 0.25 * diff)
             return score
         diff = abs(int(query_year) - result_year)
         if year_reliable:
             if diff > 2:
-                score = max(0.0, score - 0.10 * (diff - 2))
-            elif score >= 0.80:
+                score = max(0.0, score - 0.15 * (diff - 1))
+            elif score >= 0.70:
                 if diff == 0:
                     score = min(1.0, score + 0.20)
                 elif diff == 1:
                     score = min(1.0, score + 0.07)
-        elif diff == 0 and score >= 0.80:
+        elif diff == 0 and score >= 0.70:
             score = min(1.0, score + 0.05)
     elif query_year and year_reliable and not year_lower_bound:
         score = max(0.0, score - 0.20)

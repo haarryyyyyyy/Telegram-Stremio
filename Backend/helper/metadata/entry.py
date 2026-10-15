@@ -313,7 +313,7 @@ async def _search_candidates(query: str, media_type: str, year: int | None = Non
         LOGGER.warning(f"IMDb {media_type} candidate search failed for '{query}': {e}")
 
     try:
-        tmdb_results = await tmdb.raw_search(query, media_type, year if media_type == "movie" else None)
+        tmdb_results = await tmdb.raw_search(query, media_type, year)
         for item in (tmdb_results or [])[:limit]:
             tid = getattr(item, "id", None)
             if not tid or ("tmdb", str(tid)) in seen:
@@ -337,8 +337,8 @@ async def search_movie_candidates(query: str, year: int | None = None, limit: in
     return await _search_candidates(query, "movie", year, limit)
 
 
-async def search_tv_candidates(query: str, limit: int = 8) -> list[dict]:
-    return await _search_candidates(query, "tv", None, limit)
+async def search_tv_candidates(query: str, year: int | None = None, limit: int = 8) -> list[dict]:
+    return await _search_candidates(query, "tv", year, limit)
 
 
 async def search_any_candidates(query: str, year: int | None = None, limit: int = 8) -> list[dict]:
@@ -360,7 +360,7 @@ async def search_any_candidates(query: str, year: int | None = None, limit: int 
             out.append(candidate)
         return out
     results = await search_movie_candidates(query, year, limit)
-    results += await search_tv_candidates(query, limit)
+    results += await search_tv_candidates(query, year, limit)
     return results
 
 

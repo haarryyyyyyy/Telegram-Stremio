@@ -149,10 +149,14 @@ async def search(title: str, year: Optional[int] = None, entity: str = "series")
 
     async def _produce():
         q = title.strip()
-        if not q:
-            return None
-        data = await _get("/search", {"query": q, "type": entity, "limit": 10})
+        params = {"query": q, "type": entity, "limit": 10}
+        if year:
+            params["year"] = str(year)
+        data = await _get("/search", params)
         results = (data or {}).get("data") or []
+        if not results and year:
+            data = await _get("/search", {"query": q, "type": entity, "limit": 10})
+            results = (data or {}).get("data") or []
         if not results:
             return None
 
