@@ -32,7 +32,11 @@ _userbot_session_dead = False
 
 
 def _userbot_usable() -> bool:
-    return botmod.Userbot is not None and not _userbot_session_dead
+    return (
+        botmod.Userbot is not None
+        and getattr(botmod.Userbot, "is_connected", False)
+        and not _userbot_session_dead
+    )
 
 
 async def _resolve_peer(client, chat_id) -> bool:
@@ -124,11 +128,16 @@ async def delete_messages_batch(chat_id: int, msg_ids: List[int]):
             remaining = await _delete_chunk(botmod.Userbot, "Userbot", chat_id, remaining)
 
         if remaining:
-            LOGGER.error(
-                f"Could not delete {len(remaining)} message(s) in {chat_id} "
-                f"(no usable Userbot fallback)" if not _userbot_usable() else
-                f"Could not delete {len(remaining)} message(s) in {chat_id} even with Userbot fallback"
-            )
+            if not _userbot_usable():
+                LOGGER.warning(
+                    f"Could not delete {len(remaining)} message(s) in {chat_id}: "
+                    "bot lacks 'Delete Messages' permission in this channel and no Userbot is configured."
+                )
+            else:
+                LOGGER.warning(
+                    f"Could not delete {len(remaining)} message(s) in {chat_id} even with Userbot fallback. "
+                    "Ensure the userbot or bot is an admin with 'Delete Messages' permission."
+                )
 
         await sleep(1)
 

@@ -940,44 +940,6 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
         </label>
     </div>
 
-
-    <!-- ── Cloudflare Streaming ────────────────────────────────────────── -->
-    <div class="settings-card">
-        <h2><i class="fa-brands fa-cloudflare"></i> Cloudflare Streaming</h2>
-        <p style="font-size:0.8rem;color:var(--text-sec);margin:-0.25rem 0 1rem">
-            Stream video from a Cloudflare streaming Worker instead of this server. Catalogs, tokens and
-            limits stay here; the Worker reports each token's usage back. Enter the URL and secret you were given.
-        </p>
-        <a href="https://proxy.weebzonex.workers.dev" target="_blank" rel="noopener" class="add-btn" style="display:inline-flex;align-items:center;gap:.5rem;margin-bottom:1rem;text-decoration:none">
-            <i class="fa-solid fa-bolt"></i> Get Cloudflare streaming
-        </a>
-        <p style="font-size:0.75rem;color:var(--text-sec);margin:-0.5rem 0 1rem">
-            Recommended on free hosts (Koyeb, Render, orkestr): video then streams fast from Cloudflare instead of a slow, sleeping free server.
-            After buying, you get the Worker URL and secret on Telegram.
-        </p>
-        <div style="margin-bottom:1rem">
-            <label class="s-label" for="cf_stream_url">Worker URL</label>
-            <input type="url" id="cf_stream_url" class="s-input"
-                value="{{ settings.cf_stream_url }}"
-                placeholder="https://telestream.your-name.workers.dev">
-        </div>
-        <div style="margin-bottom:1rem">
-            <label class="s-label" for="cf_stream_secret">Shared Secret</label>
-            <input type="password" id="cf_stream_secret" class="s-input"
-                value="{{ settings.cf_stream_secret }}"
-                placeholder="The secret that came with your Worker URL"
-                autocomplete="off" spellcheck="false">
-        </div>
-        <div>
-            <label class="s-label" for="cf_stream_mode">Stremio Links</label>
-            <select id="cf_stream_mode" class="s-input">
-                <option value="off" {% if settings.cf_stream_mode == "off" %}selected{% endif %}>Off — stream from this server</option>
-                <option value="cloudflare" {% if settings.cf_stream_mode == "cloudflare" %}selected{% endif %}>Cloudflare only</option>
-                <option value="both" {% if settings.cf_stream_mode == "both" %}selected{% endif %}>Both — Cloudflare and direct</option>
-            </select>
-        </div>
-    </div>
-    
     <!-- ── WebDAV ──────────────────────────────────────────────────────── -->
     <div class="settings-card">
         <h2><i class="fa-solid fa-hard-drive"></i> WebDAV</h2>
@@ -1109,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
     <div class="settings-card">
         <h2><i class="fa-solid fa-box-archive"></i> Backup &amp; Restore</h2>
         <p class="bk-desc">
-            Export everything — settings, custom catalogs, subscription plans and access tokens — to a JSON file,
+            Export everything — settings, custom catalogs, and access tokens — to a JSON file,
             or restore from one. Passwords and the session secret are never exported, but the file can hold bot
             tokens and database URIs, so keep it private.
         </p>
@@ -1174,14 +1136,6 @@ function toggleDuplicateProtection() {
     input.disabled = replaceOn;
     wrap.style.opacity = replaceOn ? '0.5' : '';
     wrap.style.pointerEvents = replaceOn ? 'none' : '';
-}
-
-/* ── Toggle sub-fields visibility ─────────────────────────────────────── */
-function toggleSubFields() {
-    const el = document.getElementById('subscription');
-    if (!el) return;
-    const fields = document.getElementById('sub-fields');
-    if (fields) fields.style.display = el.checked ? '' : 'none';
 }
 
 function toggleGlobalSearchFields() {
@@ -1475,18 +1429,10 @@ async function saveSettings() {
         upstream_branch:               document.getElementById('upstream_branch').value.trim(),
         auth_channels:                 collectList('auth_channels'),
         anime_channels:                collectAnimeChannels(),
-        subscription:                  document.getElementById('subscription') ? document.getElementById('subscription').checked : false,
-        subscription_group_id:         document.getElementById('subscription_group_id') ? (parseInt(document.getElementById('subscription_group_id').value || '0', 10) || 0) : 0,
-        payment_instructions:          document.getElementById('payment_instructions') ? document.getElementById('payment_instructions').value.trim() : '',
-        payment_qr_url:                document.getElementById('payment_qr_url') ? document.getElementById('payment_qr_url').value.trim() : '',
-        approver_ids:                  document.getElementById('approver_ids_items') ? collectList('approver_ids').map(Number) : [],
         http_proxy_url:                document.getElementById('http_proxy_url').value.trim(),
         show_proxy_and_non_proxy_both: document.getElementById('show_proxy_and_non_proxy_both').checked,
         mediaflow_proxy:               document.getElementById('mediaflow_proxy').checked,
         mediaflow_password:            document.getElementById('mediaflow_password').value,
-        cf_stream_url:                 document.getElementById('cf_stream_url').value.trim(),
-        cf_stream_secret:              document.getElementById('cf_stream_secret').value.trim(),
-        cf_stream_mode:                document.getElementById('cf_stream_mode').value,
         webdav_user:                   document.getElementById('webdav_user').value.trim(),
         webdav_password:               document.getElementById('webdav_password').value,
         multi_tokens:                  collectList('multi_tokens'),
@@ -1599,7 +1545,6 @@ function renderSettings(s) {
     document.getElementById('duplicate_protection').checked = !!s.duplicate_protection;
     toggleDuplicateProtection();
     document.getElementById('hide_catalog').checked = !!s.hide_catalog;
-    if (document.getElementById('subscription')) document.getElementById('subscription').checked = !!s.subscription;
     document.getElementById('show_proxy_and_non_proxy_both').checked = !!s.show_proxy_and_non_proxy_both;
     document.getElementById('global_search').checked = !!s.global_search;
     document.getElementById('announce_new_content').checked = !!s.announce_new_content;
@@ -1626,13 +1571,9 @@ function renderSettings(s) {
     toggleFanartShuffle();
     document.getElementById('upstream_repo').value = s.upstream_repo || '';
     document.getElementById('upstream_branch').value = s.upstream_branch || '';
-    if (document.getElementById('subscription_group_id')) document.getElementById('subscription_group_id').value = s.subscription_group_id || 0;
     document.getElementById('http_proxy_url').value = s.http_proxy_url || '';
     document.getElementById('mediaflow_proxy').checked = !!s.mediaflow_proxy;
     document.getElementById('mediaflow_password').value = s.mediaflow_password || '';
-    document.getElementById('cf_stream_url').value = s.cf_stream_url || '';
-    document.getElementById('cf_stream_secret').value = s.cf_stream_secret || '';
-    document.getElementById('cf_stream_mode').value = s.cf_stream_mode || 'off';
     const wu = document.getElementById('webdav_user');
     if (wu) wu.value = s.webdav_user || '';
     const wp = document.getElementById('webdav_password');
@@ -1641,7 +1582,6 @@ function renderSettings(s) {
 
     const titles = s.channel_titles || {};
     rebuildAuthChannels(s.auth_channels, s.anime_channels, titles);
-    if (document.getElementById('approver_ids_items')) rebuildSimpleList('approver_ids_items', s.approver_ids, 'number');
     rebuildSimpleList('multi_tokens_items', s.multi_tokens, 'text');
     rebuildSimpleList('global_search_channels_items', s.global_search_channels, 'text', titles);
     rebuildSimpleList('manual_channels_items', s.manual_channels, 'text', titles);

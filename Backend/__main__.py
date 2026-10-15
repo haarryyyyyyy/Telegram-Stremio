@@ -9,7 +9,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from Backend import __version__, db
 from Backend.fastapi import server
 from Backend.fastapi.main import app
-from Backend.helper import subscription_task_manager
 from Backend.helper.cluster_monitor import start_cluster_monitor
 from Backend.helper.link_checker import DeadLinkChecker
 from Backend.helper.pyro import restart_notification, setup_bot_commands
@@ -80,8 +79,6 @@ async def start_services():
 
         start_cluster_monitor(StreamBot)
 
-        await subscription_task_manager.sync(StreamBot)
-
         LOGGER.info("Telegram-Stremio Started Successfully!")
         await idle()
     except Exception:
@@ -97,6 +94,19 @@ async def stop_services():
         for task in pending_tasks:
             task.cancel()
         await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+        try:
+            from Backend.helper.metadata.providers import cinemeta, tvdb, kitsu
+            from Backend.helper import fanart
+            await asyncio.gather(
+                cinemeta.close_client(),
+                tvdb.close_client(),
+                kitsu.close_client(),
+                fanart.close_client(),
+                return_exceptions=True,
+            )
+        except Exception:
+            pass
 
         await StreamBot.stop()
         if botmod.Userbot is not None:

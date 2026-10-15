@@ -282,3 +282,12 @@ def build_tv_payload(imdb, ep, imdb_id, title, season, episode, quality, encoded
         "encoded_string": encoded_string,
     }
     return ensure_media_ids(payload, seed=f"cinemeta:{imdb_id}")
+
+
+async def close_client() -> None:
+    global _client
+    async with _client_lock:
+        if _client is not None and not _client.is_closed:
+            await _client.aclose()
+        _client = None
+

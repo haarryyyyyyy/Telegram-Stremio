@@ -43,6 +43,9 @@ _SYMBOL_STRIP_RE = re.compile(r"[&.\-:]+")
 _HTML_RE = re.compile(r"<[^>]+>")
 
 
+MAX_CACHE_ENTRIES = 3000
+
+
 async def cached_call(store: dict, key, ns: str, producer):
     if key in store:
         return store[key]
@@ -60,6 +63,10 @@ async def cached_call(store: dict, key, ns: str, producer):
             fut.set_exception(e)
             fut.exception()
         raise
+    if len(store) >= MAX_CACHE_ENTRIES:
+        # shortcut: simple FIFO eviction of oldest 10%, upgrade to LRU if cache hit distribution skews heavily
+        for old_k in list(store.keys())[:MAX_CACHE_ENTRIES // 10]:
+            store.pop(old_k, None)
     store[key] = result
     _INFLIGHT.pop(flight_key, None)
     if not fut.done():

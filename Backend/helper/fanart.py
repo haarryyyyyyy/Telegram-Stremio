@@ -155,3 +155,12 @@ async def fanart_artwork(imdb_id, tmdb_id, media_type) -> dict:
                 url = _medium(url)
         out[target] = url
     return out
+
+
+async def close_client() -> None:
+    global _client
+    async with _client_lock:
+        if _client is not None and not _client.is_closed:
+            await _client.aclose()
+        _client = None
+

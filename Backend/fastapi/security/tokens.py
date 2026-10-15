@@ -35,34 +35,16 @@ async def verify_token(token: str):
 
     #----- Access expiry checks. Admin and never-expires tokens always bypass.
     if not token_data["is_admin"] and not token_data.get("subscription_exempt"):
-
-        #----- Compare correctly regardless of timezone awareness
         def _expired(when):
-            ref = datetime.utcnow()
-            try:
-                if when.tzinfo is not None:
-                    ref = datetime.now(timezone.utc)
-            except AttributeError:
-                pass
+            ref = datetime.now(timezone.utc)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
             return when < ref
 
-        #----- A token's own expiry is enforced in every mode. With no token expiry,
-        #----- an active subscription is required only while subscription mode is on.
-        #----- (When valid, fall through so data-limit checks still apply.)
         token_expiry = token_data.get("expires_at")
-        if token_expiry is not None:
-            if _expired(token_expiry):
-                token_data["subscription_expired"] = True
-                return token_data
-        elif SettingsManager.current().subscription:
-            user_id = token_data.get("user_id")
-            user = await db.get_user(int(user_id)) if user_id else None
-            expiry = user.get("subscription_expiry") if user else None
-            if (not user_id or not user
-                    or user.get("subscription_status") != "active"
-                    or not expiry or _expired(expiry)):
-                token_data["subscription_expired"] = True
-                return token_data
+        if token_expiry is not None and _expired(token_expiry):
+            token_data["subscription_expired"] = True
+            return token_data
 
     if daily_limit := limits.get("daily_limit_gb"):
         if daily_limit > 0:

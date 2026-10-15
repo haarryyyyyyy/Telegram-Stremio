@@ -15,7 +15,6 @@ from Backend import __version__, db
 from Backend.config import Telegram
 from Backend.helper.analytics import client_ip_from, record_client
 from Backend.fastapi.security.tokens import verify_token
-from Backend.helper.cf_stream import cf_enabled, cf_stream_url
 from Backend.fastapi.themes import DEFAULT_THEME, DEFAULT_STYLE, get_theme
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.global_search import global_search, is_global_search_enabled
@@ -776,12 +775,6 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
             stream_title += f" · 📦 {r.get('part_count', 0)} {kind}"
         url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r['title'])}"
         size_bytes = parse_size_to_bytes(r.get("size", ""))
-        if cf_enabled():
-            cf_url = cf_stream_url(token, r['token'], quote(r['title']))
-            if SettingsManager.current().cf_stream_mode == "cloudflare":
-                url = cf_url
-            else:
-                streams.append({"name": f"{stream_name} (Cloudflare)", "title": stream_title, "url": cf_url, "size_bytes": size_bytes})
         streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
     return streams
 
@@ -906,37 +899,6 @@ async def _global_streams_for(
     return _streams_from_global_results(token, global_results)
 
 
-#----- Cached check that a user is still in the subscription group (fail-open)
-async def _is_subscription_member(user_id: int) -> bool:
-    group_id = SettingsManager.current().subscription_group_id
-    if not group_id:
-        return True
-
-    cache_key = (group_id, user_id)
-    cached = _membership_cache.get(cache_key)
-    now_ts = time.monotonic()
-    if cached and (now_ts - cached[0]) < _MEMBERSHIP_TTL:
-        return cached[1]
-
-    try:
-        member = await StreamBot.get_chat_member(group_id, user_id)
-        result = member.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED)
-    except UserNotParticipant:
-        result = False
-    except Exception as e:
-        LOGGER.warning(f"[SUBSCRIPTION] Membership check failed for user {user_id}: {e}")
-        return True
-
-    if len(_membership_cache) >= _MEMBERSHIP_CACHE_MAX:
-        for k in [k for k, v in _membership_cache.items() if (now_ts - v[0]) >= _MEMBERSHIP_TTL]:
-            _membership_cache.pop(k, None)
-        if len(_membership_cache) >= _MEMBERSHIP_CACHE_MAX:
-            _membership_cache.clear()
-
-    _membership_cache[cache_key] = (now_ts, result)
-    return result
-
-
 #----- Resolve playable streams for a title (Telegram library or Global Search)
 @router.get("/{token}/stream/{media_type}/{id}.json")
 async def get_streams(
@@ -958,30 +920,12 @@ async def get_streams(
         return {
             "streams": [
                 {
-                    "name": "🚫 Plan Expired",
-                    "title": "Your plan is expired.\nRenew it from the bot to continue watching.",
+                    "name": "🚫 Token Expired",
+                    "title": "Your access token has expired.\nContact the administrator to renew access.",
                     "url": get_streambot_url()
                 }
             ]
         }
-
-    #----- Subscription users must currently be members of the configured group.
-    #----- Admin, lifetime and admin-set token-expiry grants skip this check.
-    if (SettingsManager.current().subscription
-            and not token_data.get("is_admin")
-            and not token_data.get("subscription_exempt")
-            and not token_data.get("expires_at")):
-        user_id = token_data.get("user_id")
-        if user_id and not await _is_subscription_member(int(user_id)):
-            return {
-                "streams": [
-                    {
-                        "name": "📢 Join Required",
-                        "title": "First join the channel to stream it.\nThen wait for 2 min for verification",
-                        "url": get_streambot_url()
-                    }
-                ]
-            }
 
     if token_data.get("limit_exceeded"):
         limit_type = token_data["limit_exceeded"]
@@ -1060,19 +1004,14 @@ async def get_streams(
 
                 original_url = f"{SettingsManager.current().base_url}/dl/{token}/{quality.get('id')}/video.mkv"
                 proxy_url = build_proxy_url(original_url)
-                cf_url = cf_stream_url(token, quality.get('id'), "video.mkv") if cf_enabled() else None
-                cf_only = cf_url and SettingsManager.current().cf_stream_mode == "cloudflare"
 
-                if cf_url:
-                    streams.append({"name": stream_name if cf_only else f"{stream_name} (Cloudflare)", "title": stream_title, "url": cf_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                if not cf_only:
-                    if SettingsManager.current().show_proxy_and_non_proxy_both and proxy_url:
-                        streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                        streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                    elif proxy_url:
-                        streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                    else:
-                        streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                if SettingsManager.current().show_proxy_and_non_proxy_both and proxy_url:
+                    streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                elif proxy_url:
+                    streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                else:
+                    streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
     elif is_global_search_enabled():
         try:
             is_anime = bool(is_kitsu or (media_details and media_details.get("is_anime")))

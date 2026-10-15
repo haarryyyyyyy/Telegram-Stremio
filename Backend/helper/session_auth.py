@@ -90,10 +90,8 @@ async def _activate(session_string: str) -> None:
         LOGGER.warning(f"[SESSION] Live Userbot activation failed (restart to apply): {e}")
 
 
-#----- The Cloudflare Worker streams global results with this session; tell it to reload
 def _sync_worker() -> None:
-    from Backend.helper.cf_stream import sync_worker_soon
-    sync_worker_soon()
+    pass
 
 
 async def _deactivate() -> None:

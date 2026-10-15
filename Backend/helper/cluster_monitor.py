@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pyrogram.enums import ParseMode
@@ -10,7 +10,7 @@ from Backend.helper.pyro import get_readable_time
 from Backend.logger import LOGGER
 
 _monitor_task: Optional[asyncio.Task] = None
-_LOCAL_START_TIME = datetime.utcnow()
+_LOCAL_START_TIME = datetime.now(timezone.utc)
 
 
 def _format_seconds(seconds: int) -> str:
@@ -71,7 +71,7 @@ async def _cluster_monitor_loop(bot_client) -> None:
 
             # 3. Inspect peer nodes in cluster
             nodes = await db.get_cluster_nodes()
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
 
             for node in nodes:
                 node_name = node.get("node_name")

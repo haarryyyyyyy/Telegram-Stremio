@@ -22,15 +22,7 @@ _DEFAULTS: Dict[str, Any] = {
     "admin_username": "admin",
     "admin_password": "admin",
     "session_secret": "",
-    "subscription": False,
-    "subscription_group_id": 0,
-    "approver_ids": [],
-    "payment_instructions": "",
-    "payment_qr_url": "",
     "http_proxy_url": "",
-    "cf_stream_url": "",
-    "cf_stream_secret": "",
-    "cf_stream_mode": "off",
     "show_proxy_and_non_proxy_both": False,
     "mediaflow_proxy": False,
     "mediaflow_password": "",
@@ -74,9 +66,6 @@ def _seed_from_env() -> Dict[str, Any]:
         "admin_username":               Telegram.ADMIN_USERNAME,
         "admin_password":               hash_password(Telegram.ADMIN_PASSWORD),
         "session_secret":               secrets.token_hex(32),
-        "subscription":                 Telegram.SUBSCRIPTION,
-        "subscription_group_id":        Telegram.SUBSCRIPTION_GROUP_ID,
-        "approver_ids":                 list(Telegram.APPROVER_IDS),
         "global_search_channels":       [],
         "http_proxy_url":               Telegram.HTTP_PROXY_URL,
         "show_proxy_and_non_proxy_both": Telegram.SHOW_PROXY_AND_NON_PROXY_BOTH,
@@ -197,20 +186,6 @@ class Settings:
         return str(self._d.get("http_proxy_url") or "")
 
     @property
-    def cf_stream_url(self) -> str:
-        return str(self._d.get("cf_stream_url") or "").rstrip("/")
-
-    @property
-    def cf_stream_secret(self) -> str:
-        return str(self._d.get("cf_stream_secret") or "")
-
-    #----- "off", "cloudflare" (CF links only) or "both" (CF + direct links)
-    @property
-    def cf_stream_mode(self) -> str:
-        mode = str(self._d.get("cf_stream_mode") or "off")
-        return mode if mode in ("off", "cloudflare", "both") else "off"
-
-    @property
     def mediaflow_password(self) -> str:
         return str(self._d.get("mediaflow_password") or "")
 
@@ -221,14 +196,6 @@ class Settings:
     @property
     def webdav_password(self) -> str:
         return str(self._d.get("webdav_password") or "")
-
-    @property
-    def payment_instructions(self) -> str:
-        return str(self._d.get("payment_instructions") or "")
-
-    @property
-    def payment_qr_url(self) -> str:
-        return str(self._d.get("payment_qr_url") or "")
 
     @property
     def better_poster_enabled(self) -> bool:
@@ -264,10 +231,6 @@ class Settings:
 
     #----- Integers
     @property
-    def subscription_group_id(self) -> int:
-        return int(self._d.get("subscription_group_id") or 0)
-
-    @property
     def fanart_shuffle_interval(self) -> int:
         try:
             return max(0, int(self._d.get("fanart_shuffle_interval", 5)))
@@ -278,10 +241,6 @@ class Settings:
     @property
     def auth_channels(self) -> List[str]:
         return list(self._d.get("auth_channels") or [])
-
-    @property
-    def approver_ids(self) -> List[int]:
-        return [int(x) for x in (self._d.get("approver_ids") or [])]
 
     @property
     def multi_tokens(self) -> List[str]:
@@ -447,37 +406,6 @@ class SettingsManager:
         proxy_keys = {"http_proxy_url", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "mediaflow_password"}
         if any(old.get(k) != new.get(k) for k in proxy_keys):
             results["proxy"] = "updated — applies to next outbound request"
-
-        #----- Cloudflare streaming settings changed (read live per request)
-        cf_keys = {"cf_stream_url", "cf_stream_secret", "cf_stream_mode"}
-        if any(old.get(k) != new.get(k) for k in cf_keys):
-            results["cloudflare"] = "updated — new stream links use it right away"
-
-        #----- Bot tokens or Cloudflare settings changed: have the Worker reload them now
-        if old_tokens != new_tokens or any(old.get(k) != new.get(k) for k in cf_keys):
-            from Backend.helper.cf_stream import sync_worker_soon
-            sync_worker_soon()
-
-        #----- Subscription enabled/disabled: start or stop the checker task
-        if old.get("subscription") != new.get("subscription"):
-            try:
-                from Backend.helper import subscription_task_manager
-                from Backend.pyrofork.bot import StreamBot
-
-                if new.get("subscription"):
-                    await subscription_task_manager.start(StreamBot)
-                    results["subscription"] = "checker task started"
-                else:
-                    await subscription_task_manager.stop()
-                    results["subscription"] = "checker task stopped"
-            except Exception as exc:
-                LOGGER.error(f"SettingsManager reinit subscription: {exc}")
-                results["subscription"] = f"error: {exc}"
-        else:
-            sub_keys = {"subscription_group_id", "approver_ids",
-                        "payment_instructions", "payment_qr_url"}
-            if any(old.get(k) != new.get(k) for k in sub_keys):
-                results["subscription"] = "settings reloaded in-memory"
 
         #----- Admin credentials changed
         cred_keys = {"admin_username", "admin_password"}

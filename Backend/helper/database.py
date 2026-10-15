@@ -19,6 +19,14 @@ from Backend.logger import LOGGER
 
 
 
+def _to_utc_dt(val: Any) -> Optional[datetime]:
+    if not isinstance(val, datetime):
+        return None
+    if val.tzinfo is None:
+        return val.replace(tzinfo=timezone.utc)
+    return val.astimezone(timezone.utc)
+
+
 def convert_objectid_to_str(document: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in document.items():
         if isinstance(value, ObjectId):
@@ -1081,8 +1089,11 @@ class Database:
             return False
 
     async def _handle_storage_error(self, func, *args, total_storage_dbs: int) -> Optional[Any]:
+        if total_storage_dbs <= 1:
+            LOGGER.warning("⚠️ Storage quota reached on single storage database! Add more databases.")
+            return None
         next_db_index = (self.current_db_index % total_storage_dbs) + 1
-        if next_db_index == 1:
+        if next_db_index == self.current_db_index:
             LOGGER.warning("⚠️ All storage databases are full! Add more.")
             return None
         self.current_db_index = next_db_index
@@ -2281,14 +2292,7 @@ class Database:
         return await self.add_api_token(name or f"User {user_id}", user_id=user_id)
 
     async def align_token_with_subscription(self, user_id: int) -> None:
-        if not SettingsManager.current().subscription:
-            return
-        doc = await self.dbs["tracking"]["api_tokens"].find_one({"user_id": user_id})
-        if doc:
-            await self.dbs["tracking"]["api_tokens"].update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"subscription_exempt": False, "expires_at": None}},
-            )
+        pass
 
     #----- Toggle a token's lifetime (subscription-exempt) flag
     async def set_token_lifetime(self, token: str, exempt: bool) -> bool:
@@ -2845,7 +2849,7 @@ class Database:
         self, node_name: str, ingest_enabled: bool, version: str, started_at: datetime, port: int = 8080
     ) -> None:
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             await self.dbs["tracking"]["cluster_nodes"].update_one(
                 {"_id": str(node_name)},
                 {
@@ -2857,7 +2861,7 @@ class Database:
                         "port": int(port),
                     },
                     "$setOnInsert": {
-                        "started_at": started_at,
+                        "started_at": _to_utc_dt(started_at) or now,
                         "alerted_down": False,
                     }
                 },
@@ -2884,26 +2888,26 @@ class Database:
         try:
             cursor = self.dbs["tracking"]["cluster_nodes"].find()
             nodes = await cursor.to_list(length=50)
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             result = []
             for doc in nodes:
-                last_seen = doc.get("last_seen")
+                last_seen = _to_utc_dt(doc.get("last_seen"))
                 is_online = False
                 seconds_ago = 999999
-                if isinstance(last_seen, datetime):
+                if last_seen:
                     seconds_ago = (now - last_seen).total_seconds()
                     is_online = seconds_ago <= 45
 
-                started_at = doc.get("started_at")
-                uptime_seconds = (now - started_at).total_seconds() if isinstance(started_at, datetime) else 0
+                started_at = _to_utc_dt(doc.get("started_at"))
+                uptime_seconds = (now - started_at).total_seconds() if started_at else 0
 
                 result.append({
                     "node_name": doc.get("node_name") or str(doc.get("_id")),
                     "is_online": is_online,
                     "seconds_ago": max(0, round(seconds_ago)),
                     "last_seen_str": f"{_human_duration(max(0, round(seconds_ago)))} ago" if last_seen else "Never",
-                    "last_seen": last_seen.isoformat() if isinstance(last_seen, datetime) else None,
-                    "started_at": started_at.isoformat() if isinstance(started_at, datetime) else None,
+                    "last_seen": last_seen.isoformat() if last_seen else None,
+                    "started_at": started_at.isoformat() if started_at else None,
                     "uptime_seconds": max(0, round(uptime_seconds)),
                     "uptime_str": _human_duration(max(0, round(uptime_seconds))) if started_at and is_online else "Offline",
                     "alerted_down": bool(doc.get("alerted_down", False)),
@@ -2927,7 +2931,7 @@ class Database:
 
     async def request_cluster_restart(self, target_node: str = "all") -> None:
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             await self.dbs["tracking"]["cluster_commands"].update_one(
                 {"_id": "restart_command"},
                 {
@@ -2948,10 +2952,12 @@ class Database:
 
     async def check_and_clear_pending_restart(self, node_name: str, started_at: Optional[datetime] = None) -> bool:
         try:
+            started_at_utc = _to_utc_dt(started_at)
             doc = await self.dbs["tracking"]["cluster_nodes"].find_one({"_id": str(node_name)})
             if doc and doc.get("restart_pending"):
                 req_at = doc.get("restart_requested_at")
-                if isinstance(req_at, datetime) and started_at and started_at > req_at:
+                req_at_utc = _to_utc_dt(req_at)
+                if req_at_utc and started_at_utc and started_at_utc > req_at_utc:
                     # Already restarted after request
                     await self.dbs["tracking"]["cluster_nodes"].update_one(
                         {"_id": str(node_name)},
@@ -2969,14 +2975,15 @@ class Database:
             if cmd:
                 target = str(cmd.get("target_node", "")).lower()
                 req_at = cmd.get("requested_at")
-                if (target == "all" or target == str(node_name).lower()) and isinstance(req_at, datetime):
-                    if started_at and started_at > req_at:
+                req_at_utc = _to_utc_dt(req_at)
+                if (target == "all" or target == str(node_name).lower()) and req_at_utc:
+                    if started_at_utc and started_at_utc > req_at_utc:
                         return False
                     if doc and doc.get("last_consumed_restart") == req_at:
                         return False
-                    diff = (datetime.utcnow() - req_at).total_seconds()
+                    diff = (datetime.now(timezone.utc) - req_at_utc).total_seconds()
                     # 10-minute validity window ensures peer nodes catch the signal even under load
-                    if diff <= 600:
+                    if 0 <= diff <= 600:
                         await self.dbs["tracking"]["cluster_nodes"].update_one(
                             {"_id": str(node_name)},
                             {"$set": {"last_consumed_restart": req_at, "restart_pending": False}},

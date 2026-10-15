@@ -359,7 +359,11 @@ async def _iter_all_media(db, *, force_refresh: bool = False):
             continue
 
         for collection_name in ["movie", "tv"]:
-            cursor = db.dbs[db_key][collection_name].find({"tmdb_id": {"$exists": True, "$ne": None}})
+            cursor = db.dbs[db_key][collection_name].find({"$or": [
+                {"tmdb_id": {"$exists": True, "$ne": None}},
+                {"kitsu_id": {"$exists": True, "$ne": None}},
+                {"imdb_id": {"$exists": True, "$ne": None}},
+            ]})
             async for doc in cursor:
                 doc["db_index"] = db_index
                 doc["media_type"] = "tv" if collection_name == "tv" else "movie"
@@ -375,7 +379,7 @@ async def _classify_one(db, client: httpx.AsyncClient, semaphore: asyncio.Semaph
             details, watch_data = await asyncio.wait_for(_fetch_tmdb_data(client, doc), timeout=30)
             classification = classify_media_from_tmdb(doc, details or {}, watch_data or {}, enabled_names)
 
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             update_data = {
                 "original_language": classification.get("original_language"),
                 "origin_country": classification.get("origin_country", []),
@@ -389,16 +393,22 @@ async def _classify_one(db, client: httpx.AsyncClient, semaphore: asyncio.Semaph
                     "source_updated_on": doc.get("updated_on"),
                 },
             }
-            persisted = await asyncio.wait_for(
-                db.update_document(_media_type(doc), int(doc.get("tmdb_id")), int(doc.get("db_index", 1)), update_data),
-                timeout=30,
-            )
-            if persisted is False:
-                LOGGER.warning(
-                    "Auto catalog sync flag not persisted for "
-                    f"{doc.get('title')} (tmdb_id={doc.get('tmdb_id')}, "
-                    f"db_index={doc.get('db_index')}); document not found in that storage DB."
+            if doc.get("tmdb_id"):
+                persisted = await asyncio.wait_for(
+                    db.update_document(_media_type(doc), int(doc.get("tmdb_id")), int(doc.get("db_index", 1)), update_data),
+                    timeout=30,
                 )
+                if persisted is False:
+                    LOGGER.warning(
+                        "Auto catalog sync flag not persisted for "
+                        f"{doc.get('title')} (tmdb_id={doc.get('tmdb_id')}, "
+                        f"db_index={doc.get('db_index')}); document not found in that storage DB."
+                    )
+            else:
+                db_key = f"storage_{int(doc.get('db_index', 1))}"
+                coll = _media_type(doc)
+                if db_key in db.dbs:
+                    await db.dbs[db_key][coll].update_one({"_id": doc["_id"]}, {"$set": update_data})
             return doc, classification
         except Exception as e:
             LOGGER.warning(f"Auto catalog classification failed for {doc.get('title')} ({doc.get('tmdb_id')}): {e}")

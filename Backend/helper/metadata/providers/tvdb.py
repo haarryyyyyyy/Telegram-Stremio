@@ -619,3 +619,12 @@ async def fetch_movie_metadata(title, encoded_string, year=None, quality=None) -
             "remoteIds": hit.get("remote_ids") or [],
         }
     return await build_movie_payload(movie, quality, encoded_string)
+
+
+async def close_client() -> None:
+    global _client
+    async with _client_lock:
+        if _client is not None and not _client.is_closed:
+            await _client.aclose()
+        _client = None
+
