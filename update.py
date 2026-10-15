@@ -83,5 +83,33 @@ if UPSTREAM_REPO:
         commit_check = srun(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
         if commit_check.returncode == 0:
             log_info(f"Latest commit ID: {commit_check.stdout.strip()}")
+
+        # ── Automatically install / sync any new libraries ────────────────────
+        log_info("Syncing updated dependencies...")
+        uv_bin = shutil.which("uv")
+        synced = False
+        if uv_bin:
+            if ospath.exists("pyproject.toml") and ospath.exists("uv.lock"):
+                res = srun([uv_bin, "sync"], capture_output=True, text=True)
+                if res.returncode == 0:
+                    log_info("Dependencies synced successfully with uv.")
+                    synced = True
+                else:
+                    log_info(f"uv sync note: {res.stderr.strip() if res.stderr else res.stdout.strip()}")
+            if not synced and ospath.exists("requirements.txt"):
+                res = srun([uv_bin, "pip", "install", "-r", "requirements.txt", "--quiet"], capture_output=True, text=True)
+                if res.returncode == 0:
+                    log_info("Dependencies installed successfully with uv pip.")
+                    synced = True
+                else:
+                    log_info(f"uv pip note: {res.stderr.strip() if res.stderr else res.stdout.strip()}")
+
+        if not synced and ospath.exists("requirements.txt"):
+            import sys
+            res = srun([sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--quiet"], capture_output=True, text=True)
+            if res.returncode == 0:
+                log_info("Dependencies installed successfully with pip.")
+            else:
+                log_error(f"pip install note: {res.stderr.strip() if res.stderr else res.stdout.strip()}")
     else:
         log_error("❌ Update failed! Retry or ask for support.")

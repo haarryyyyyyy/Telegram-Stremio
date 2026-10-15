@@ -2895,7 +2895,7 @@ class Database:
 
                 await self.dbs["tracking"]["cluster_nodes"].update_one(
                     {"_id": str(node_name)},
-                    {"$set": {"restart_pending": False}},
+                    {"$set": {"restart_pending": False, "last_consumed_restart": req_at}},
                 )
                 return True
 
@@ -2906,8 +2906,16 @@ class Database:
                 if (target == "all" or target == str(node_name).lower()) and isinstance(req_at, datetime):
                     if started_at and started_at > req_at:
                         return False
+                    if doc and doc.get("last_consumed_restart") == req_at:
+                        return False
                     diff = (datetime.utcnow() - req_at).total_seconds()
-                    if diff <= 60:
+                    # 10-minute validity window ensures peer nodes catch the signal even under load
+                    if diff <= 600:
+                        await self.dbs["tracking"]["cluster_nodes"].update_one(
+                            {"_id": str(node_name)},
+                            {"$set": {"last_consumed_restart": req_at, "restart_pending": False}},
+                            upsert=True,
+                        )
                         return True
         except Exception as e:
             LOGGER.debug(f"check_and_clear_pending_restart error: {e}")

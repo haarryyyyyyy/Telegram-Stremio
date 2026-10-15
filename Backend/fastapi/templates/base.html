@@ -480,13 +480,21 @@ tailwind.config = {
 <body class="pt-24 pb-12 antialiased">
 
 <div id="update-banner" class="hidden fixed top-0 left-0 right-0 z-[60] px-3 pt-3 pointer-events-none">
-  <div class="pointer-events-auto mx-auto max-w-6xl rounded-2xl border border-amber-400/40 bg-amber-500/95 text-black shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-md px-4 py-3 sm:px-5 flex items-start sm:items-center gap-3">
-    <div class="shrink-0 w-9 h-9 rounded-xl bg-black/15 flex items-center justify-center mt-0.5 sm:mt-0">
-      <i class="fa-solid fa-arrow-up text-sm"></i>
+  <div class="pointer-events-auto mx-auto max-w-6xl rounded-2xl border border-amber-400/40 bg-amber-500/95 text-black shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-md px-4 py-3 sm:px-5 flex items-start sm:items-center justify-between gap-3 flex-wrap">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="shrink-0 w-9 h-9 rounded-xl bg-black/15 flex items-center justify-center">
+        <i class="fa-solid fa-arrow-up text-sm"></i>
+      </div>
+      <div class="min-w-0 leading-snug">
+        <p class="text-sm font-bold">New version <span id="update-latest" class="font-extrabold"></span> available</p>
+        <p class="text-xs sm:text-sm opacity-90 mt-0.5">Current: <span id="update-current" class="font-semibold"></span> — Updates all cluster VMs automatically.</p>
+      </div>
     </div>
-    <div class="min-w-0 flex-1 leading-snug">
-      <p class="text-sm font-bold">New version <span id="update-latest" class="font-extrabold"></span> available</p>
-      <p class="text-xs sm:text-sm opacity-90 mt-0.5">You are on <span id="update-current" class="font-semibold"></span>. Set upstream repo/branch, then restart/update.</p>
+    <div class="shrink-0 flex items-center gap-2">
+      <button onclick="updateClusterNow()" class="px-3.5 py-1.5 rounded-xl bg-black text-white text-xs font-extrabold hover:bg-black/85 active:scale-95 transition flex items-center gap-1.5 shadow-md">
+        <i class="fa-solid fa-arrows-rotate"></i>
+        <span>Update All Nodes</span>
+      </button>
     </div>
   </div>
 </div>
@@ -862,6 +870,22 @@ if(navContainer) {
         if (banner && !banner.classList.contains('hidden')) layout(true);
     });
 })();
+
+async function updateClusterNow() {
+    if (!confirm('Update and restart ALL cluster VM instances (VM 1 and VM 2)? Each node will pull the latest code and install any new dependencies.')) return;
+    try {
+        const res = await fetch('/api/admin/restart?target=all', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            alert(data.message || 'Update dispatched to all cluster nodes.');
+            setTimeout(() => window.location.reload(), 4000);
+        } else {
+            alert(data.detail || 'Update request failed.');
+        }
+    } catch (e) {
+        alert('Network error while requesting update.');
+    }
+}
 {% endif %}
 
 if ('serviceWorker' in navigator) {
