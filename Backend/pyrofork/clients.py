@@ -30,7 +30,9 @@ async def start_client(client_id: int, token: str):
             bot_token=token,
             sleep_threshold=100,
             no_updates=True,
-            in_memory=True
+            in_memory=True,
+            workers=6,
+            max_concurrent_transmissions=10,
         ).start()
 
         try:
