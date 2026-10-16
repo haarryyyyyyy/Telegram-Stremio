@@ -1,5 +1,21 @@
+import sys
+import types
 import unittest
-from unittest.mock import AsyncMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+
+if "fastapi" not in sys.modules:
+    try:
+        import fastapi
+    except ModuleNotFoundError:
+        fastapi_mod = types.ModuleType("fastapi")
+        fastapi_mod.HTTPException = Exception
+        fastapi_mod.Query = MagicMock()
+        fastapi_mod.Request = MagicMock()
+        fastapi_mod.APIRouter = MagicMock()
+        fastapi_mod.Depends = MagicMock()
+        sys.modules["fastapi"] = fastapi_mod
+        sys.modules["fastapi.responses"] = MagicMock()
+        sys.modules["fastapi.templating"] = MagicMock()
 
 from Backend.helper.settings_manager import Settings, SettingsManager
 from Backend.helper.stream_formatter import PRESETS, format_stream
@@ -50,6 +66,17 @@ class TestV520Features(unittest.IsolatedAsyncioTestCase):
         args, kwargs = mock_cached_call.call_args
         # First arg is cache, second is cache_key
         self.assertEqual(args[1], "series:tt1234567")
+
+    @patch("Backend.db.get_all_api_tokens", new_callable=AsyncMock)
+    async def test_get_all_tokens_api_timezone(self, mock_get_tokens):
+        from Backend.fastapi.routes.api_routes import get_all_tokens_api
+        mock_get_tokens.return_value = [
+            {"token": "test-token-123", "user_id": 12345, "is_admin": False, "created_at": "2026-10-01"}
+        ]
+        res = await get_all_tokens_api()
+        self.assertIn("tokens", res)
+        self.assertEqual(len(res["tokens"]), 1)
+        self.assertEqual(res["tokens"][0]["token"], "test-token-123")
 
 
 if __name__ == "__main__":

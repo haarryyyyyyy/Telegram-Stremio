@@ -143,20 +143,19 @@ class TestSplitFilesAndParsing(unittest.TestCase):
         """build_proxy_url must normalize missing schemes and join paths without duplicating original base."""
         try:
             from Backend.fastapi.routes.stremio_routes import build_proxy_url
-            from Backend.helper.settings_manager import SettingsManager
+            from Backend.helper.settings_manager import Settings, SettingsManager
         except ImportError:
             raise unittest.SkipTest("fastapi not installed in local environment")
 
-        SettingsManager._instance = None
         orig = "http://mybackend.com:8080/dl/tok123/streamhash/video.mkv"
 
         # Reverse proxy mode
-        SettingsManager.update({"http_proxy_url": "cdn.example.com", "mediaflow_proxy": False})
+        SettingsManager._current = Settings({"http_proxy_url": "cdn.example.com", "mediaflow_proxy": False})
         res = build_proxy_url(orig)
         self.assertEqual(res, "https://cdn.example.com/dl/tok123/streamhash/video.mkv")
 
         # Mediaflow mode
-        SettingsManager.update({"http_proxy_url": "http://mediaflow.lan:8888", "mediaflow_proxy": True, "mediaflow_password": ""})
+        SettingsManager._current = Settings({"http_proxy_url": "http://mediaflow.lan:8888", "mediaflow_proxy": True, "mediaflow_password": ""})
         res = build_proxy_url(orig)
         self.assertTrue(res.startswith("http://mediaflow.lan:8888/proxy/stream?d="))
 

@@ -5,7 +5,7 @@ import random
 import secrets
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from time import time
 
 from fastapi import HTTPException, Query, Request
