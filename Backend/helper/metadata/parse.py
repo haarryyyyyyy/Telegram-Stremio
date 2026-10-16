@@ -59,7 +59,11 @@ def parse_media_name(name: str) -> dict:
                 parsed["title"] = g_title
             elif g_title and isinstance(g_title, str) and len(g_title) > 1:
                 if parsed["title"].lower().startswith(g_title.lower()) and len(g_title) < len(parsed["title"]):
-                    parsed["title"] = g_title
+                    stripped = parsed["title"][len(g_title):].strip()
+                    is_lang = bool(re.match(r"^(?:hindi|tamil|telugu|malayalam|kannada|bengali|punjabi|marathi|gujarati)$", stripped, re.I))
+                    is_tv = parsed.get("season") is not None or bool(_EXPLICIT_SXXEXX_RE.search(name))
+                    if not (is_lang and is_tv):
+                        parsed["title"] = g_title
             parsed["year"] = parsed["year"] or first(g.get("year"))
 
             # Only pull season/episode from GuessIt when PTN found neither
@@ -103,9 +107,13 @@ def parse_media_name(name: str) -> dict:
             parsed["quality"] = "480p"
 
     if parsed.get("title") and isinstance(parsed["title"], str):
-        cleaned_t = _LANGUAGE_AUDIO_RE.sub("", parsed["title"]).strip(" -_.")
-        if len(cleaned_t) >= 2:
-            parsed["title"] = cleaned_t
+        is_tv = parsed.get("season") is not None or bool(_EXPLICIT_SXXEXX_RE.search(name))
+        if not is_tv:
+            cleaned_t = _LANGUAGE_AUDIO_RE.sub("", parsed["title"]).strip(" -_.")
+            if len(cleaned_t) >= 2:
+                parsed["title"] = cleaned_t
+            else:
+                parsed["title"] = parsed["title"].strip(" -_.")
         else:
             parsed["title"] = parsed["title"].strip(" -_.")
 

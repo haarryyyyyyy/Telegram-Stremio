@@ -45,6 +45,21 @@ def _is_anime_channel(channel) -> bool:
     return any(str(c).strip().replace("-100", "") == target for c in anime_channels)
 
 
+def _is_anime_result(result: dict, anime_channel: bool = False) -> bool:
+    if not result:
+        return False
+    if result.get("kitsu_id") or str(result.get("source", "")).lower() == "kitsu":
+        return True
+    genres = [str(g).lower() for g in (result.get("genres") or [])] if isinstance(result.get("genres"), list) else [str(result.get("genres") or "").lower()]
+    is_anim = any("anim" in g for g in genres)
+    orig_lang = str(result.get("original_language") or "").lower()
+    countries = [str(c).upper() for c in (result.get("origin_country") or [])] + [str(c).upper() for c in (result.get("production_countries") or [])]
+    is_jp = orig_lang in ("ja", "japanese") or "JP" in countries
+    if is_anim and (is_jp or anime_channel):
+        return True
+    return False
+
+
 def _resolve_default_id(override_id, filename) -> str | None:
     for source in (override_id, getattr(Backend, "USE_DEFAULT_ID", None), filename):
         if not source:
@@ -125,15 +140,8 @@ async def metadata(
         if episode is None:
             episode = extract_absolute_episode(filename, parsed)
 
-    # On anime channels, recover absolute from the raw filename when
-    # PTN/GuessIt treated a numbered release as a movie (no season/episode).
-    anime_channel_early = _is_anime_channel(channel)
-    if (
-        anime_channel_early
-        and not season
-        and not absolute
-        and episode is None
-    ):
+    # Recover absolute from the raw filename when PTN/GuessIt treated a numbered release as a movie (no season/episode).
+    if not season and not absolute and episode is None:
         abs_ep = extract_absolute_episode(filename, parsed)
         if abs_ep is not None:
             episode = abs_ep
@@ -172,15 +180,15 @@ async def metadata(
     anime_channel = _is_anime_channel(channel)
 
     try:
-        # TV path: classic SxxExx, or absolute/orphan episode on anime channels
-        is_tv = bool(season and episode) or (absolute and episode and anime_channel)
+        # TV path: classic SxxExx, or absolute/orphan episode
+        is_tv = bool(season and episode) or bool(absolute and episode)
         if is_tv:
             if absolute:
                 LOGGER.info(f"Fetching TV metadata (absolute): {title} E{int(episode)} (year={year})")
             else:
                 LOGGER.info(f"Fetching TV metadata: {title} S{int(season):02d}E{int(episode):02d} (year={year})")
             result = None
-            if not default_id and anime_channel:
+            if not default_id and (anime_channel or absolute):
                 result = await resolve_anime_tv(
                     title, season, int(episode), encoded_string,
                     year=year, quality=quality, absolute=absolute,
@@ -213,8 +221,7 @@ async def metadata(
                     title, encoded_string, year=year, quality=quality, default_id=default_id
                 )
         if result is not None:
-            if anime_channel:
-                result["is_anime"] = True
+            result["is_anime"] = _is_anime_result(result, anime_channel)
             result["group_key"] = group_key
             result["part_number"] = part_number
         if result:

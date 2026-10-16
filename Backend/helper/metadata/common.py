@@ -259,6 +259,13 @@ def build_query_variants(title: str, year: Optional[int] = None) -> list:
         variants.append(non_latin_part)
         if year:
             variants.append(f"{non_latin_part} {year}")
+    # Regional adaptations: "The Traitors Telugu" -> try "The Traitors India", "The Traitors"
+    lang_m = re.search(r"\s+\b(telugu|tamil|malayalam|kannada|bengali|hindi|marathi|punjabi)\b$", title, re.IGNORECASE)
+    if lang_m:
+        base_name = title[:lang_m.start()].strip()
+        if base_name and base_name.lower() != title.lower():
+            variants.append(f"{base_name} India")
+            variants.append(base_name)
     seen: set = set()
     ordered = []
     for v in variants:

@@ -64,6 +64,52 @@ class TestUnmatchedAndFallbacks(unittest.TestCase):
         res = asyncio.run(pick_best([mock_item], "Vidudhala Part 1", 2023, "movie"))
         self.assertIsNone(res)
 
+    def test_auto_catalog_timezone_import(self):
+        """Auto catalog classification must have access to timezone without NameError."""
+        from Backend.helper.auto_catalog import timezone
+        from datetime import datetime
+        now = datetime.now(timezone.utc)
+        self.assertIsNotNone(now)
+
+    def test_one_piece_absolute_episode_and_anime_classification(self):
+        """One Piece 1015 must be recognized as having episode 1015, not classified as movie."""
+        from Backend.helper.metadata.parse import parse_media_name, extract_absolute_episode
+        from Backend.helper.metadata.entry import _is_anime_result
+
+        fn = "One Piece Episode 1015.mkv"
+        parsed = parse_media_name(fn)
+        abs_ep = extract_absolute_episode(fn, parsed)
+        self.assertEqual(abs_ep, 1015)
+
+        # Anime check with Kitsu hit
+        kitsu_result = {"title": "One Piece", "kitsu_id": 12, "source": "kitsu"}
+        self.assertTrue(_is_anime_result(kitsu_result, anime_channel=False))
+
+        # Live action TV (like The Traitors) on anime channel must NOT be marked as anime
+        traitors_result = {
+            "title": "The Traitors",
+            "genres": ["Reality"],
+            "original_language": "te",
+            "origin_country": ["IN"],
+        }
+        self.assertFalse(_is_anime_result(traitors_result, anime_channel=True))
+
+    def test_the_traitors_telugu_title_and_variants(self):
+        """The Traitors Telugu must preserve 'Telugu' in title and generate regional variants."""
+        from Backend.helper.metadata.parse import parse_media_name
+        from Backend.helper.metadata.common import build_query_variants
+
+        fn = "The.Traitors.Telugu.S01E01.1080p.mkv"
+        parsed = parse_media_name(fn)
+        self.assertEqual(parsed["title"], "The Traitors Telugu")
+        self.assertEqual(parsed["season"], 1)
+        self.assertEqual(parsed["episode"], 1)
+
+        variants = build_query_variants(parsed["title"])
+        self.assertIn("The Traitors Telugu", variants)
+        self.assertIn("The Traitors India", variants)
+        self.assertIn("The Traitors", variants)
+
 
 if __name__ == "__main__":
     unittest.main()
