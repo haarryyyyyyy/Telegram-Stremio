@@ -69,7 +69,13 @@ class Database:
     async def connect(self):
         try:
             for index, uri in enumerate(self.db_uris):
-                client = motor.motor_asyncio.AsyncIOMotorClient(uri)
+                client = motor.motor_asyncio.AsyncIOMotorClient(
+                    uri,
+                    maxPoolSize=20,
+                    minPoolSize=1,
+                    serverSelectionTimeoutMS=5000,
+                    socketTimeoutMS=15000,
+                )
                 db_key = "tracking" if index == 0 else f"storage_{index}"
                 self.clients[db_key] = client
                 self.dbs[db_key] = client[self.db_name]
@@ -104,6 +110,8 @@ class Database:
                 await tracking["custom_catalogs"].create_index(
                     [("items.tmdb_id", ASCENDING), ("items.media_type", ASCENDING)]
                 )
+                await tracking["api_tokens"].create_index([("token", ASCENDING)], unique=True)
+                await tracking["api_tokens"].create_index([("user_id", ASCENDING)])
                 await self._ensure_subtitle_indexes(tracking)
             except Exception as e:
                 LOGGER.error(f"Failed creating tracking indexes: {e}")
@@ -142,6 +150,10 @@ class Database:
                 await db[collection_name].create_index([("tmdb_id", ASCENDING)])
                 await db[collection_name].create_index([("imdb_id", ASCENDING)])
                 await db[collection_name].create_index([("kitsu_id", ASCENDING)])
+                await db[collection_name].create_index([("updated_on", DESCENDING)])
+                await db[collection_name].create_index([("telegram.id", ASCENDING)])
+                if collection_name == "tv":
+                    await db[collection_name].create_index([("seasons.episodes.telegram.id", ASCENDING)])
             except Exception as e:
                 LOGGER.error(f"Failed creating index on {db_key}/{collection_name}: {e}")
 
@@ -311,54 +323,6 @@ class Database:
             upsert=True
         )
 
-    async def set_pending_payment(self, user_id: int, plan_duration: int, msg_id: int, price=0, admin_messages: list = None, currency: str = "INR"):
-        update_data = {
-            "pending_payment": {
-                "duration": plan_duration,
-                "price": price,
-                "currency": (currency or "INR").upper(),
-                "msg_id": msg_id,
-                "date": datetime.utcnow(),
-            }
-        }
-        if admin_messages is not None:
-            update_data["pending_payment"]["admin_messages"] = admin_messages
-        await self.dbs["tracking"]["users"].update_one(
-            {"_id": user_id},
-            {"$set": update_data},
-            upsert=True
-        )
-
-    async def approve_payment(self, user_id: int) -> Optional[dict]:
-        user = await self.get_user(user_id)
-        if not user or "pending_payment" not in user:
-            return None
-
-        duration = user["pending_payment"]["duration"]
-        
-        #----- Calculate new expiry
-        current_expiry = user.get("subscription_expiry")
-        now = datetime.utcnow()
-        if current_expiry and current_expiry > now:
-            new_expiry = current_expiry + timedelta(days=duration)
-        else:
-            new_expiry = now + timedelta(days=duration)
-
-        await self.dbs["tracking"]["users"].update_one(
-            {"_id": user_id},
-            {
-                "$set": {"subscription_expiry": new_expiry, "subscription_status": "active"},
-                "$unset": {"pending_payment": ""}
-            }
-        )
-        return await self.get_user(user_id)
-
-    async def reject_payment(self, user_id: int) -> bool:
-        result = await self.dbs["tracking"]["users"].update_one(
-            {"_id": user_id},
-            {"$unset": {"pending_payment": ""}}
-        )
-        return result.modified_count > 0
 
     async def get_expired_users(self) -> List[dict]:
         cursor = self.dbs["tracking"]["users"].find({

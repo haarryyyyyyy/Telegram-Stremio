@@ -49,15 +49,13 @@ class DeadLinkChecker:
             active_db = self.db.dbs[f"storage_{i}"]
 
             #----- Movies (snapshot ids first so no cursor stays open during the slow Telegram checks)
+            #----- Movies (snapshot projection first so no cursor stays open during the slow Telegram checks)
             try:
-                movie_ids = [d["_id"] for d in await active_db["movie"].find(
+                movies = await active_db["movie"].find(
                     {"telegram": {"$exists": True, "$not": {"$size": 0}}, "telegram.is_dead": {"$ne": True}},
-                    {"_id": 1},
-                ).to_list(None)]
-                for movie_id in movie_ids:
-                    movie = await active_db["movie"].find_one({"_id": movie_id})
-                    if not movie:
-                        continue
+                    {"_id": 1, "tmdb_id": 1, "telegram": 1},
+                ).to_list(None)
+                for movie in movies:
                     tmdb_id = movie.get("tmdb_id")
                     for quality in movie.get("telegram", []):
                         if quality.get("is_dead"):
@@ -70,16 +68,13 @@ class DeadLinkChecker:
             except Exception as e:
                 LOGGER.error(f"Error scanning movies in DB {i}: {e}")
 
-            #----- TV Shows (snapshot ids first, then re-read each doc with a short query)
+            #----- TV Shows (snapshot projection first)
             try:
-                tv_ids = [d["_id"] for d in await active_db["tv"].find(
+                tv_shows = await active_db["tv"].find(
                     {"seasons.episodes.telegram": {"$exists": True, "$not": {"$size": 0}}, "seasons.episodes.telegram.is_dead": {"$ne": True}},
-                    {"_id": 1},
-                ).to_list(None)]
-                for tv_id in tv_ids:
-                    tv = await active_db["tv"].find_one({"_id": tv_id})
-                    if not tv:
-                        continue
+                    {"_id": 1, "tmdb_id": 1, "seasons": 1},
+                ).to_list(None)
+                for tv in tv_shows:
                     tmdb_id = tv.get("tmdb_id")
                     for season in tv.get("seasons", []):
                         for ep in season.get("episodes", []):

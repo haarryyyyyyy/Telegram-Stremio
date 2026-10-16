@@ -139,6 +139,56 @@ class TestSplitFilesAndParsing(unittest.TestCase):
         self.assertEqual(_safe_bytes(None), 0)
         self.assertEqual(_safe_bytes("invalid"), 0)
 
+    def test_proxy_url_building(self):
+        """build_proxy_url must normalize missing schemes and join paths without duplicating original base."""
+        try:
+            from Backend.fastapi.routes.stremio_routes import build_proxy_url
+            from Backend.helper.settings_manager import SettingsManager
+        except ImportError:
+            raise unittest.SkipTest("fastapi not installed in local environment")
+
+        SettingsManager._instance = None
+        orig = "http://mybackend.com:8080/dl/tok123/streamhash/video.mkv"
+
+        # Reverse proxy mode
+        SettingsManager.update({"http_proxy_url": "cdn.example.com", "mediaflow_proxy": False})
+        res = build_proxy_url(orig)
+        self.assertEqual(res, "https://cdn.example.com/dl/tok123/streamhash/video.mkv")
+
+        # Mediaflow mode
+        SettingsManager.update({"http_proxy_url": "http://mediaflow.lan:8888", "mediaflow_proxy": True, "mediaflow_password": ""})
+        res = build_proxy_url(orig)
+        self.assertTrue(res.startswith("http://mediaflow.lan:8888/proxy/stream?d="))
+
+    def test_subtitles_formatting(self):
+        """stremio_subtitle_entries must output ISO 639-2 code in lang and human label in label."""
+        from Backend.helper.subtitles import stremio_subtitle_entries
+
+        subs = [
+            {"msg_id": 101, "encoded": "enc1", "name": "sub.srt", "lang_code": "eng", "lang_label": "English"},
+            {"msg_id": 102, "encoded": "enc2", "name": "sub.srt", "lang_code": "eng", "lang_label": "English"},
+        ]
+        entries = stremio_subtitle_entries(subs, "tok", "http://base.com")
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["lang"], "eng")
+        self.assertEqual(entries[0]["label"], "English (1)")
+        self.assertEqual(entries[1]["lang"], "eng")
+        self.assertEqual(entries[1]["label"], "English (2)")
+
+    def test_video_mime_resolution(self):
+        """_resolve_filename_mime must reliably resolve video/x-matroska for .mkv files."""
+        try:
+            from Backend.fastapi.routes.stream_routes import _resolve_filename_mime
+        except ImportError:
+            raise unittest.SkipTest("fastapi not installed in local environment")
+
+        from collections import namedtuple
+        MockFileId = namedtuple("MockFileId", ["file_name", "mime_type"])
+        f_mkv = MockFileId(file_name="Movie.2024.1080p.mkv", mime_type=None)
+        name, mime = _resolve_filename_mime(f_mkv)
+        self.assertEqual(name, "Movie.2024.1080p.mkv")
+        self.assertEqual(mime, "video/x-matroska")
+
 
 if __name__ == "__main__":
     unittest.main()

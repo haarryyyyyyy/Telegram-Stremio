@@ -300,12 +300,13 @@ def stremio_subtitle_entries(subs: list, token: str, base_url: str) -> list:
         base_label = sub.get("lang_label") or sub.get("lang_code") or "Unknown"
         if lang_counts.get(base_label, 0) > 1:
             seen[base_label] = seen.get(base_label, 0) + 1
-            lang = f"{base_label} ({seen[base_label]})"
+            label = f"{base_label} ({seen[base_label]})"
         else:
-            lang = base_label
+            label = base_label
         entries.append({
             "id": f"tg-{sub.get('msg_id')}",
             "url": f"{base_url}/sub/{token}/{sub.get('encoded')}/subtitle{ext}",
-            "lang": lang,
+            "lang": sub.get("lang_code") or "eng",
+            "label": label,
         })
     return entries

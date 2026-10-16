@@ -49,7 +49,9 @@ async def _cleanup_stale_streams():
                             RECENT_STREAMS.appendleft(entry)
                         idx = entry.get("client_index")
                         if idx is not None and idx in work_loads and not entry.get("meta", {}).get("is_internal"):
-                            work_loads[idx] = max(0, work_loads[idx] - 1)
+                            if not entry.get("workload_decremented"):
+                                entry["workload_decremented"] = True
+                                work_loads[idx] = max(0, work_loads[idx] - 1)
                 except Exception:
                     pass
         except Exception:
@@ -497,7 +499,9 @@ class ByteStreamer:
                 finally:
                     if not is_internal:
                         try:
-                            work_loads[client_index] -= 1
+                            if not stream_entry.get("workload_decremented"):
+                                stream_entry["workload_decremented"] = True
+                                work_loads[client_index] = max(0, work_loads.get(client_index, 1) - 1)
                         except Exception:
                             pass
 
@@ -509,13 +513,17 @@ class ByteStreamer:
         dc = file_id.dc_id
         media_session = self.client.media_sessions.get(dc)
 
-        if media_session:
+        if media_session and getattr(media_session, "is_connected", False):
             return media_session
+        elif media_session:
+            self.client.media_sessions.pop(dc, None)
 
         async with self._session_lock:
             media_session = self.client.media_sessions.get(dc)
-            if media_session:
+            if media_session and getattr(media_session, "is_connected", False):
                 return media_session
+            elif media_session:
+                self.client.media_sessions.pop(dc, None)
 
             test_mode = await self.client.storage.test_mode()
             current_dc = await self.client.storage.dc_id()
@@ -542,6 +550,9 @@ class ByteStreamer:
                         await asyncio.sleep(0.5)
                     except OSError:
                         await asyncio.sleep(1)
+                else:
+                    await session.stop()
+                    raise RuntimeError(f"Failed to export/import auth to DC {dc} after 6 retries")
 
             self.client.media_sessions[dc] = session
             return session

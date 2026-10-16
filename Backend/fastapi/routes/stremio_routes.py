@@ -3,7 +3,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlsplit
 
 import PTN
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -36,15 +36,19 @@ PAGE_SIZE = 15
 
 def build_proxy_url(original_url: str) -> str | None:
     settings = SettingsManager.current()
-    base = settings.http_proxy_url
+    base = (settings.http_proxy_url or "").strip()
     if not base:
         return None
+    if not base.startswith(("http://", "https://")):
+        base = f"https://{base}"
     if settings.mediaflow_proxy:
         url = f"{base.rstrip('/')}/proxy/stream?d={quote(original_url, safe='')}"
         if settings.mediaflow_password:
             url += f"&api_password={quote(settings.mediaflow_password, safe='')}"
         return url
-    return f"{base}{original_url}"
+    orig_split = urlsplit(original_url)
+    path_query = orig_split.path + (f"?{orig_split.query}" if orig_split.query else "")
+    return f"{base.rstrip('/')}{path_query}"
 
 _membership_cache: dict = {}
 _MEMBERSHIP_TTL = 60
@@ -775,7 +779,16 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
             stream_title += f" · 📦 {r.get('part_count', 0)} {kind}"
         url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r['title'])}"
         size_bytes = parse_size_to_bytes(r.get("size", ""))
-        streams.append({"name": stream_name, "title": stream_title, "url": url, "size_bytes": size_bytes})
+        streams.append({
+            "name": stream_name,
+            "title": stream_title,
+            "url": url,
+            "behaviorHints": {
+                "filename": r.get("title") or "video.mkv",
+                "bingeGroup": f"tg-global-{r.get('quality', 'HD')}",
+            },
+            "size_bytes": size_bytes,
+        })
     return streams
 
 
@@ -1004,14 +1017,18 @@ async def get_streams(
 
                 original_url = f"{SettingsManager.current().base_url}/dl/{token}/{quality.get('id')}/video.mkv"
                 proxy_url = build_proxy_url(original_url)
+                behavior_hints = {
+                    "filename": filename or f"{stream_name}.mkv",
+                    "bingeGroup": f"tg-{quality_str}",
+                }
 
                 if SettingsManager.current().show_proxy_and_non_proxy_both and proxy_url:
-                    streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
-                    streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    streams.append({"name": f"{stream_name} (Proxy)", "title": stream_title, "url": proxy_url, "behaviorHints": behavior_hints, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    streams.append({"name": f"{stream_name} (Direct)", "title": stream_title, "url": original_url, "behaviorHints": behavior_hints, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
                 elif proxy_url:
-                    streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    streams.append({"name": stream_name, "title": stream_title, "url": proxy_url, "behaviorHints": behavior_hints, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
                 else:
-                    streams.append({"name": stream_name, "title": stream_title, "url": original_url, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
+                    streams.append({"name": stream_name, "title": stream_title, "url": original_url, "behaviorHints": behavior_hints, "size_bytes": size_bytes, "episode_start": episode_start, "name_key": name_key})
     elif is_global_search_enabled():
         try:
             is_anime = bool(is_kitsu or (media_details and media_details.get("is_anime")))
@@ -1070,6 +1087,9 @@ async def get_streams(
         if name_count[s["name"]] > 1:
             seen[s["name"]] = seen.get(s["name"], 0) + 1
             s["name"] = f"{s['name']} ({seen[s['name']]})"
+        s.pop("size_bytes", None)
+        s.pop("episode_start", None)
+        s.pop("name_key", None)
     return {"streams": streams}
 
 #----- Configure/install landing page rendered as HTML for a token

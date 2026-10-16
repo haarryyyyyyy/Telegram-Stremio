@@ -39,6 +39,7 @@ _rr_counter: int = 0
 
 _title_cache: Dict[str, tuple] = {}
 _TITLE_CACHE_TTL = 300
+_TITLE_CACHE_MAX = 2000
 
 
 #----- Recursively convert non-JSON-native containers to serializable forms
@@ -150,14 +151,33 @@ async def _lookup_title(stream_id_hash: str, decoded_name: str):
     if cached and now < cached[1]:
         return cached[0] or decoded_name
     db_title = await db.get_title_by_stream_id(stream_id_hash)
+    if len(_title_cache) >= _TITLE_CACHE_MAX:
+        for k in list(_title_cache.keys())[:_TITLE_CACHE_MAX // 5]:
+            _title_cache.pop(k, None)
     _title_cache[stream_id_hash] = (db_title, now + _TITLE_CACHE_TTL)
     return db_title or decoded_name
+
+
+_VIDEO_MIME_BY_EXT = {
+    ".mkv": "video/x-matroska",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".avi": "video/x-msvideo",
+    ".mov": "video/quicktime",
+    ".ts": "video/mp2t",
+    ".m2ts": "video/mp2t",
+    ".flv": "video/x-flv",
+    ".wmv": "video/x-ms-wmv",
+}
 
 
 #----- Derive a display file name and mime type from file properties
 def _resolve_filename_mime(file_id):
     file_name = file_id.file_name or f"{secrets.token_hex(4)}.bin"
-    mime_type = file_id.mime_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    mime_type = file_id.mime_type or mimetypes.guess_type(file_name)[0]
+    if not mime_type or mime_type == "application/octet-stream":
+        ext = f".{file_name.rsplit('.', 1)[-1].lower()}" if "." in file_name else ""
+        mime_type = _VIDEO_MIME_BY_EXT.get(ext, mime_type or "application/octet-stream")
     if "." not in file_name and "/" in mime_type:
         file_name = f"{file_name}.{mime_type.split('/')[1]}"
     return file_name, mime_type
@@ -272,6 +292,11 @@ async def subtitle_handler(token: str, id: str, name: str, token_data: dict = De
 @router.get("/dl/{token}/{id}/{name}")
 @router.head("/dl/{token}/{id}/{name}")
 async def stream_handler(request: Request, token: str, id: str, name: str, token_data: dict = Depends(verify_token)):
+    if token_data.get("subscription_expired"):
+        raise HTTPException(status_code=403, detail="Access token has expired")
+    if token_data.get("limit_exceeded"):
+        raise HTTPException(status_code=403, detail="Bandwidth limit exceeded")
+
     if request.method != "HEAD":
         asyncio.create_task(record_stream_start(
             token,
