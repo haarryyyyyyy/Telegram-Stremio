@@ -79,7 +79,6 @@ class ByteStreamer:
         if client_index >= 0:
             ByteStreamer._instances[client_index] = self
         asyncio.create_task(self._clean_cache())
-        asyncio.create_task(self._prewarm_sessions())
         _ensure_stale_cleaner()
 
     async def _prewarm_sessions(self):
@@ -202,8 +201,12 @@ class ByteStreamer:
         primary_refresh = await _make_refresh_fn(location_box, self, file_id)
         session_pool = [(client_index, media_session, location_box, primary_refresh)]
 
-        if extra_clients:
+        async def _setup_extra_clients():
+            if not extra_clients:
+                return
             for item in extra_clients:
+                if stop_event.is_set():
+                    break
                 try:
                     if len(item) == 2:
                         ec_idx, ec_streamer = item
@@ -219,6 +222,9 @@ class ByteStreamer:
                     session_pool.append((ec_idx, ec_session, ec_loc_box, ec_refresh))
                 except Exception as e:
                     LOGGER.warning("Skipping extra client (session setup failed): %s", e)
+
+        if extra_clients:
+            asyncio.create_task(_setup_extra_clients())
 
         async def fetch_chunk_with_retries(seq_idx: int, off: int) -> Tuple[int, Optional[bytes]]:
             base_slot = seq_idx % len(session_pool)
