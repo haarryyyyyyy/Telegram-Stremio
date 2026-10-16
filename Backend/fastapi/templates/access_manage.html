@@ -542,6 +542,12 @@
         try {
             const resp = await fetch('/api/admin/access/tokens');
             const data = await resp.json();
+            if (!resp.ok) {
+                const msg = data.detail || 'Failed to load tokens';
+                document.getElementById('token-table-body').innerHTML = `<tr><td colspan="6" class="text-center py-10 text-red-300">Error: ${msg}</td></tr>`;
+                showToast(msg, 'error', 'Load Error');
+                return;
+            }
             allTokens = data.tokens || [];
             subEnabled = !!data.subscription;
             document.getElementById('stat-total').textContent = allTokens.length;

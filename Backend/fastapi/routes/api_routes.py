@@ -637,63 +637,76 @@ async def clear_stream_analytics_api() -> dict:
         return {"status": "error", "message": str(e)}
 
 
+from Backend.helper.database import _to_utc_dt, _safe_bytes
+
+
 #----- Access management
 async def get_all_tokens_api() -> dict:
     try:
         tokens = await db.get_all_api_tokens()
         now = datetime.now(timezone.utc)
         result = []
+        base_url = (SettingsManager.current().base_url or "").rstrip("/")
 
         for token_doc in tokens:
-            user_id = token_doc.get("user_id")
-            token_str = token_doc.get("token")
-            is_admin = bool(token_doc.get("is_admin")) or (db._is_owner(user_id) if user_id else False)
-            lifetime = bool(token_doc.get("subscription_exempt"))
-            token_expiry = token_doc.get("expires_at")
-            if token_expiry and token_expiry.tzinfo is None:
-                token_expiry = token_expiry.replace(tzinfo=timezone.utc)
+            if not isinstance(token_doc, dict):
+                continue
+            try:
+                user_id = token_doc.get("user_id")
+                token_str = token_doc.get("token")
+                is_admin = bool(token_doc.get("is_admin")) or (db._is_owner(user_id) if user_id else False)
+                lifetime = bool(token_doc.get("subscription_exempt"))
+                token_expiry = _to_utc_dt(token_doc.get("expires_at"))
 
-            if is_admin or lifetime:
-                expiry = None
-                is_expired = False
-            elif token_expiry is not None:
-                expiry = token_expiry
-                is_expired = token_expiry < now
-            else:
-                expiry = None
-                is_expired = False
+                if is_admin or lifetime:
+                    expiry = None
+                    is_expired = False
+                elif token_expiry is not None:
+                    expiry = token_expiry
+                    is_expired = token_expiry < now
+                else:
+                    expiry = None
+                    is_expired = False
 
-            created = token_doc.get("created_at")
-            limits = token_doc.get("limits") or {}
-            usage = token_doc.get("usage") or {}
+                created_dt = _to_utc_dt(token_doc.get("created_at"))
+                raw_created = token_doc.get("created_at")
+                created_iso = created_dt.isoformat() if created_dt else (raw_created if isinstance(raw_created, str) else None)
+                expires_iso = expiry.isoformat() if expiry else (token_doc.get("expires_at") if isinstance(token_doc.get("expires_at"), str) else None)
 
-            result.append({
-                "token": token_str,
-                "user_id": user_id,
-                "user_name": token_doc.get("name") or (f"User {user_id}" if user_id else "API Token"),
-                "user_found": bool(user_id),
-                "is_admin": is_admin,
-                "lifetime": lifetime,
-                "never_expires": not expiry,
-                "has_token": bool(token_str),
-                "has_active_sub": False,
-                "created_at": created.isoformat() if created else None,
-                "expires_at": expiry.isoformat() if expiry else None,
-                "is_expired": is_expired,
-                "sub_status": None,
-                "daily_limit_gb": limits.get("daily_limit_gb") or 0,
-                "monthly_limit_gb": limits.get("monthly_limit_gb") or 0,
-                "daily_bytes": (usage.get("daily") or {}).get("bytes", 0),
-                "monthly_bytes": (usage.get("monthly") or {}).get("bytes", 0),
-                "addon_url": (
-                    f"{SettingsManager.current().base_url}/stremio/{token_str}/manifest.json"
-                    if token_str else None
-                ),
-            })
+                limits = token_doc.get("limits") if isinstance(token_doc.get("limits"), dict) else {}
+                usage = token_doc.get("usage") if isinstance(token_doc.get("usage"), dict) else {}
+
+                result.append({
+                    "token": token_str,
+                    "user_id": user_id,
+                    "user_name": token_doc.get("name") or (f"User {user_id}" if user_id else "API Token"),
+                    "user_found": bool(user_id),
+                    "is_admin": is_admin,
+                    "lifetime": lifetime,
+                    "never_expires": not expiry,
+                    "has_token": bool(token_str),
+                    "has_active_sub": False,
+                    "created_at": created_iso,
+                    "expires_at": expires_iso,
+                    "is_expired": is_expired,
+                    "sub_status": None,
+                    "daily_limit_gb": limits.get("daily_limit_gb") or 0,
+                    "monthly_limit_gb": limits.get("monthly_limit_gb") or 0,
+                    "daily_bytes": _safe_bytes(usage.get("daily")),
+                    "monthly_bytes": _safe_bytes(usage.get("monthly")),
+                    "addon_url": (
+                        f"{base_url}/stremio/{token_str}/manifest.json"
+                        if token_str else None
+                    ),
+                })
+            except Exception as item_err:
+                LOGGER.error(f"Error processing token item: {item_err}")
+                continue
 
         result.sort(key=lambda x: (x["is_expired"], not x["has_token"]))
         return {"tokens": result, "subscription": False}
     except Exception as e:
+        LOGGER.error(f"get_all_tokens_api failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

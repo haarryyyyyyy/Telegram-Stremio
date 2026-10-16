@@ -20,11 +20,26 @@ from Backend.logger import LOGGER
 
 
 def _to_utc_dt(val: Any) -> Optional[datetime]:
-    if not isinstance(val, datetime):
-        return None
-    if val.tzinfo is None:
-        return val.replace(tzinfo=timezone.utc)
-    return val.astimezone(timezone.utc)
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=timezone.utc) if val.tzinfo is None else val.astimezone(timezone.utc)
+    if isinstance(val, str) and val.strip():
+        try:
+            dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+            return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+        except Exception:
+            return None
+    return None
+
+
+def _safe_bytes(val: Any) -> int:
+    if isinstance(val, dict):
+        try:
+            return int(val.get("bytes") or 0)
+        except (ValueError, TypeError):
+            return 0
+    if isinstance(val, (int, float)):
+        return int(val)
+    return 0
 
 
 def convert_objectid_to_str(document: Dict[str, Any]) -> Dict[str, Any]:

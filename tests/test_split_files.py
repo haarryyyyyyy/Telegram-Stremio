@@ -114,6 +114,31 @@ class TestSplitFilesAndParsing(unittest.TestCase):
         sim = title_similarity("Vidudhalai", "Vidudhala")
         self.assertGreater(sim, 0.85)
 
+    def test_safe_dt_and_bytes(self):
+        """Token date parser and byte extractor must handle strings, naive/aware datetimes, and ints."""
+        from Backend.helper.database import _to_utc_dt, _safe_bytes
+        from datetime import datetime, timezone
+
+        self.assertIsNone(_to_utc_dt(None))
+        self.assertIsNone(_to_utc_dt(""))
+        self.assertIsNone(_to_utc_dt("invalid-date"))
+
+        # String ISO parsing
+        parsed = _to_utc_dt("2026-10-15T12:00:00Z")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.tzinfo, timezone.utc)
+
+        # Naive datetime
+        naive = datetime(2026, 10, 15, 12, 0)
+        aware = _to_utc_dt(naive)
+        self.assertEqual(aware.tzinfo, timezone.utc)
+
+        # Byte extraction
+        self.assertEqual(_safe_bytes({"bytes": 2048}), 2048)
+        self.assertEqual(_safe_bytes(4096), 4096)
+        self.assertEqual(_safe_bytes(None), 0)
+        self.assertEqual(_safe_bytes("invalid"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
