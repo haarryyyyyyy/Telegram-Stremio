@@ -784,7 +784,11 @@ def _streams_from_global_results(token: str, global_results: list) -> list:
         custom = format_stream(SettingsManager.current(), r["title"], size_bytes, addon_name="🌐 Global",
                                is_split=is_split, parts=r.get("part_count", 0), channel=r.get("source_chat"))
         if custom:
-            stream_name, stream_title = custom
+            c_name, c_title = custom
+            if c_name and c_name.strip():
+                stream_name = c_name
+            if c_title and c_title.strip():
+                stream_title = c_title
         url = f"{SettingsManager.current().base_url}/dl/{token}/{r['token']}/{quote(r['title'])}"
         streams.append({
             "name": stream_name,
@@ -1038,7 +1042,11 @@ async def get_streams(
                         is_split=bool(quality.get("group_key")), meta=fmt_meta,
                     )
                     if custom:
-                        name, title = custom
+                        c_name, c_title = custom
+                        if c_name and c_name.strip():
+                            name = c_name
+                        if c_title and c_title.strip():
+                            title = c_title
                     if combined:
                         label = "Full" if combined.get("start") is None else f"E{combined['start']:02d}-E{combined['end']:02d}"
                         if label.lower() not in name.lower():

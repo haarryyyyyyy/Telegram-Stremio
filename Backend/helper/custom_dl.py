@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from fastapi import Request
 from pyrogram import Client, raw
-from pyrogram.errors import AuthBytesInvalid
+from pyrogram.errors import AuthBytesInvalid, FloodWait, RPCError
 from pyrogram.file_id import FileId
 from pyrogram.session import Auth, Session
 
@@ -173,7 +173,7 @@ class ByteStreamer:
         is_internal = bool(meta and meta.get("is_internal"))
         if not is_internal:
             ACTIVE_STREAMS[stream_id] = registry_entry
-            work_loads[client_index] += 1
+            work_loads[client_index] = work_loads.get(client_index, 0) + 1
         stream_entry = registry_entry
 
         queue_maxsize = max(1, prefetch)
@@ -513,14 +513,14 @@ class ByteStreamer:
         dc = file_id.dc_id
         media_session = self.client.media_sessions.get(dc)
 
-        if media_session and getattr(media_session, "is_connected", False):
+        if media_session and getattr(media_session, "is_started", None) and media_session.is_started.is_set():
             return media_session
         elif media_session:
             self.client.media_sessions.pop(dc, None)
 
         async with self._session_lock:
             media_session = self.client.media_sessions.get(dc)
-            if media_session and getattr(media_session, "is_connected", False):
+            if media_session and getattr(media_session, "is_started", None) and media_session.is_started.is_set():
                 return media_session
             elif media_session:
                 self.client.media_sessions.pop(dc, None)
@@ -548,7 +548,9 @@ class ByteStreamer:
                         break
                     except AuthBytesInvalid:
                         await asyncio.sleep(0.5)
-                    except OSError:
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value or 1)
+                    except (RPCError, OSError, asyncio.TimeoutError, TimeoutError):
                         await asyncio.sleep(1)
                 else:
                     await session.stop()

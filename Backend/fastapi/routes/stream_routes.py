@@ -154,8 +154,14 @@ async def _db_client(fetch):
             return USERBOT_CLIENT_INDEX, ub, await fetch(ub)
         except Exception as e:
             LOGGER.warning(f"[USERBOT] Falling back to bots: {e}")
+    if not multi_clients and getattr(botmod, "StreamBot", None):
+        multi_clients[0] = botmod.StreamBot
+        work_loads[0] = work_loads.get(0, 0)
     index = select_best_client(0)
-    streamer = _get_streamer(multi_clients[index], index)
+    client = multi_clients.get(index) or getattr(botmod, "StreamBot", None)
+    if not client:
+        raise HTTPException(status_code=503, detail="No streaming client available")
+    streamer = _get_streamer(client, index)
     return index, streamer, await fetch(streamer)
 
 
@@ -241,9 +247,12 @@ async def thumb_handler(id: str):
             msg_id = int(decoded["msg_id"])
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid thumbnail id")
+        if not multi_clients and getattr(botmod, "StreamBot", None):
+            multi_clients[0] = botmod.StreamBot
+            work_loads[0] = work_loads.get(0, 0)
         if not multi_clients:
             raise HTTPException(status_code=503, detail="No client available")
-        client = multi_clients[select_best_client(0)]
+        client = multi_clients.get(select_best_client(0)) or multi_clients.get(0) or botmod.StreamBot
         try:
             message = await client.get_messages(chat_id, msg_id)
             target = get_thumb_download_target(message)
@@ -285,10 +294,13 @@ async def subtitle_handler(token: str, id: str, name: str, token_data: dict = De
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid subtitle id")
 
+    if not multi_clients and getattr(botmod, "StreamBot", None):
+        multi_clients[0] = botmod.StreamBot
+        work_loads[0] = work_loads.get(0, 0)
     if not multi_clients:
         raise HTTPException(status_code=503, detail="No client available")
 
-    client = multi_clients[select_best_client(0)]
+    client = multi_clients.get(select_best_client(0)) or multi_clients.get(0) or botmod.StreamBot
     try:
         message = await client.get_messages(chat_id, msg_id)
         buf = await client.download_media(message, in_memory=True)
