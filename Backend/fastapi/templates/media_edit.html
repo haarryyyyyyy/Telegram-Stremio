@@ -1641,6 +1641,28 @@
         </div>`;
     }
 
+    function _resultRow(r, medal, maxSpeed) {
+        const isErr = !!r.error && !r.speed_mbps;
+        const ping = r.ping_ms !== null ? `<span class="${_pingClass(r.ping_ms)}">${r.ping_ms} ms</span>` : '<span class="text-text-secondary">—</span>';
+        const speed = r.speed_mbps !== null
+            ? `<span class="${_speedClass(r.speed_mbps)}">${r.speed_mbps.toFixed(2)} MB/s</span>
+               ${_miniBar(r.speed_mbps, maxSpeed, r.speed_mbps >= 20 ? 'bg-emerald-400' : r.speed_mbps >= 5 ? 'bg-amber-300' : 'bg-rose-300')}`
+            : '<span class="text-text-secondary">—</span>';
+        const badge = isErr
+            ? `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/15 text-rose-200 border border-rose-500/20">Error</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-200 border border-emerald-500/20">✓ OK</span>`;
+        const tr = document.createElement('tr');
+        tr.className = `transition-colors ${isErr ? 'opacity-70' : ''}`;
+        tr.innerHTML = `
+            <td class="px-4 py-3 font-medium text-white">${medal}Bot ${r.client_index + 1} <span class="text-xs text-text-secondary">(DC ${r.dc_id})</span></td>
+            <td data-label="Ping" class="px-4 py-3 text-text">${ping}</td>
+            <td data-label="Speed" class="px-4 py-3 text-text">${speed}${isErr ? `<div class="text-xs text-rose-300 mt-1 break-words">${r.error}</div>` : ''}</td>
+            <td data-label="Time" class="px-4 py-3 text-text-secondary text-sm">${r.time_taken_sec !== null ? `${r.time_taken_sec.toFixed(2)}s` : '—'}</td>
+            <td data-label="Downloaded" class="px-4 py-3 text-text-secondary text-xs">${r.bytes_downloaded ? `${(r.bytes_downloaded / 1048576).toFixed(2)} MB` : '—'}</td>
+            <td data-label="Status" class="px-4 py-3">${badge}</td>`;
+        return tr;
+    }
+
     async function _exec() {
         const params = new URLSearchParams({
             quality_id: _stQualityId,
@@ -1705,11 +1727,11 @@
                     tr.className = 'animate-pulse';
                     tr.innerHTML = `
                         <td class="px-4 py-3 font-medium text-text-secondary">🔄 Bot ${i + 1}</td>
-                        <td class="px-4 py-3"><span class="text-muted">testing…</span></td>
-                        <td class="px-4 py-3"><span class="text-muted">testing…</span></td>
-                        <td class="px-4 py-3 text-muted">—</td>
-                        <td class="px-4 py-3 text-muted">—</td>
-                        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs bg-surface-2 text-text-secondary">Pending</span></td>`;
+                        <td data-label="Ping" class="px-4 py-3"><span class="text-muted">testing…</span></td>
+                        <td data-label="Speed" class="px-4 py-3"><span class="text-muted">testing…</span></td>
+                        <td data-label="Time" class="px-4 py-3 text-muted">—</td>
+                        <td data-label="Downloaded" class="px-4 py-3 text-muted">—</td>
+                        <td data-label="Status" class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs bg-surface-2 text-text-secondary">Pending</span></td>`;
                     tbody.appendChild(tr);
                     pendingRows[i] = tr;
                 }
@@ -1721,29 +1743,7 @@
                 const tr = pendingRows[r.client_index];
                 if (tr) {
                     maxSpeed = Math.max(maxSpeed, r.speed_mbps || 0, 1);
-                    const isErr = !!r.error && !r.speed_mbps;
-                    const medal = '';
-                    const dc = `Bot ${r.client_index + 1} <span class="text-xs text-text-secondary">(DC ${r.dc_id})</span>`;
-                    const ping = r.ping_ms !== null ? `<span class="${_pingClass(r.ping_ms)}">${r.ping_ms} ms</span>` : '<span class="text-text-secondary">—</span>';
-                    const speed = r.speed_mbps !== null
-                        ? `<span class="${_speedClass(r.speed_mbps)}">${r.speed_mbps.toFixed(2)} MB/s</span>
-                           ${_miniBar(r.speed_mbps, maxSpeed, r.speed_mbps >= 20 ? 'bg-emerald-400' : r.speed_mbps >= 5 ? 'bg-amber-300' : 'bg-rose-300')}`
-                        : '<span class="text-text-secondary">—</span>';
-                    const taken = r.time_taken_sec !== null ? `${r.time_taken_sec.toFixed(2)}s` : '—';
-                    const bytes = r.bytes_downloaded ? `${(r.bytes_downloaded / 1048576).toFixed(2)} MB` : '—';
-                    const badge = isErr
-                        ? `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/15 text-rose-200 border border-rose-500/20">Error</span>`
-                        : `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-200 border border-emerald-500/20">✓ OK</span>`;
-
-                    const newTr = document.createElement('tr');
-                    newTr.className = `transition-colors ${isErr ? 'opacity-70' : ''}`;
-                    newTr.innerHTML = `
-                        <td class="px-4 py-3 font-medium text-white">${medal}${dc}</td>
-                        <td class="px-4 py-3 text-text">${ping}</td>
-                        <td class="px-4 py-3 text-text">${speed}${isErr ? `<div class="text-xs text-rose-300 mt-1">${r.error}</div>` : ''}</td>
-                        <td class="px-4 py-3 text-text-secondary text-sm">${taken}</td>
-                        <td class="px-4 py-3 text-text-secondary text-xs">${bytes}</td>
-                        <td class="px-4 py-3">${badge}</td>`;
+                    const newTr = _resultRow(r, '', maxSpeed);
 
                     if (pendingRows[r.client_index]) {
                         pendingRows[r.client_index].replaceWith(newTr);
@@ -1768,29 +1768,7 @@
 
                 for (let i = 0; i < allResults.length; i++) {
                     const r = allResults[i];
-                    const isErr = !!r.error && !r.speed_mbps;
-                    const medal = i === 0 && !isErr ? '🥇 ' : '';
-                    const dc = `Bot ${r.client_index + 1} <span class="text-xs text-text-secondary">(DC ${r.dc_id})</span>`;
-                    const ping = r.ping_ms !== null ? `<span class="${_pingClass(r.ping_ms)}">${r.ping_ms} ms</span>` : '<span class="text-text-secondary">—</span>';
-                    const speed = r.speed_mbps !== null
-                        ? `<span class="${_speedClass(r.speed_mbps)}">${r.speed_mbps.toFixed(2)} MB/s</span>
-                           ${_miniBar(r.speed_mbps, maxSpeed, r.speed_mbps >= 20 ? 'bg-emerald-400' : r.speed_mbps >= 5 ? 'bg-amber-300' : 'bg-rose-300')}`
-                        : '<span class="text-text-secondary">—</span>';
-                    const taken = r.time_taken_sec !== null ? `${r.time_taken_sec.toFixed(2)}s` : '—';
-                    const bytes = r.bytes_downloaded ? `${(r.bytes_downloaded / 1048576).toFixed(2)} MB` : '—';
-                    const badge = isErr
-                        ? `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/15 text-rose-200 border border-rose-500/20">Error</span>`
-                        : `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-200 border border-emerald-500/20">✓ OK</span>`;
-
-                    const tr = document.createElement('tr');
-                    tr.className = `transition-colors ${isErr ? 'opacity-70' : ''}`;
-                    tr.innerHTML = `
-                        <td class="px-4 py-3 font-medium text-white">${medal}${dc}</td>
-                        <td class="px-4 py-3 text-text">${ping}</td>
-                        <td class="px-4 py-3 text-text">${speed}${isErr ? `<div class="text-xs text-rose-300 mt-1">${r.error}</div>` : ''}</td>
-                        <td class="px-4 py-3 text-text-secondary text-sm">${taken}</td>
-                        <td class="px-4 py-3 text-text-secondary text-xs">${bytes}</td>
-                        <td class="px-4 py-3">${badge}</td>`;
+                    const tr = _resultRow(r, i === 0 && r.speed_mbps ? '🥇 ' : '', maxSpeed);
                     tbody.appendChild(tr);
                 }
 
@@ -1962,7 +1940,7 @@
         div.className = 'flex flex-col sm:flex-row gap-2';
         div.setAttribute('data-sub-row', '');
         div.innerHTML = `<input class="field-input flex-1 sub-url" placeholder="Telegram message link" value="${url}">
-            <select class="field-input sm:w-44 sub-lang">${subtitleLangOptions()}</select>
+            <select class="field-input sub-lang">${subtitleLangOptions()}</select>
             <button type="button" onclick="this.closest('[data-sub-row]').remove()" class="btn-ui btn-ghost w-full sm:w-auto">Remove</button>`;
         document.getElementById('subtitle-rows').appendChild(div);
     }
