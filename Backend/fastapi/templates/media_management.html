@@ -47,6 +47,10 @@
                    class="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-full text-sm font-bold transition border bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/20 hover:bg-emerald-500/90">
                     <i class="fa-solid fa-plus"></i> Add
                 </button>
+                <button type="button" id="unmatched-queue-btn" onclick="openUnmatchedModal()"
+                   class="hidden inline-flex items-center gap-2 px-3.5 py-2.5 rounded-full text-sm font-bold transition border bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25 shadow-lg shadow-amber-500/10">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Skipped <span id="unmatched-count-badge" class="px-2 py-0.5 text-xs font-black rounded-full bg-amber-500 text-black">0</span>
+                </button>
             </div>
         </div>
     </section>
@@ -691,6 +695,38 @@
     </div>
 </div>
 
+<!-- Skipped / Unmatched Media Queue Modal -->
+<div id="unmatched-modal" class="fixed inset-0 z-50 hidden" aria-modal="true" role="dialog">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUnmatchedModal()"></div>
+    <div class="absolute inset-0 flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto">
+        <div class="glass-panel rounded-3xl w-full max-w-3xl my-4 flex flex-col max-h-[85vh] border border-hairline shadow-2xl">
+            <div class="flex items-center justify-between gap-3 px-5 sm:px-6 py-4 border-b border-hairline shrink-0">
+                <div class="flex items-center gap-3">
+                    <span class="w-9 h-9 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm shrink-0">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </span>
+                    <div>
+                        <h2 class="text-lg sm:text-xl font-extrabold text-text">Skipped / Unmatched Media</h2>
+                        <p class="text-xs text-text-secondary">Files that failed auto-indexing. Search & 1-click index them into your library.</p>
+                    </div>
+                </div>
+                <button onclick="closeUnmatchedModal()" class="text-text-secondary hover:text-text text-3xl leading-none">&times;</button>
+            </div>
+
+            <div id="unmatched-modal-body" class="p-5 sm:p-6 overflow-y-auto space-y-4">
+                <div class="text-center py-8 text-text-secondary">
+                    <i class="fa-solid fa-circle-notch fa-spin text-2xl text-primary mb-2"></i>
+                    <p>Loading skipped media...</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end px-5 sm:px-6 py-3 border-t border-hairline shrink-0">
+                <button onclick="closeUnmatchedModal()" class="px-5 py-2 rounded-2xl glass-panel border border-hairline text-text font-bold text-sm">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     let maType = mediaType;
     let maSelectedId = null;
@@ -979,6 +1015,7 @@
             if (!res.ok) throw new Error(data.detail || 'Failed to add content');
             showToast(data.message || 'Added successfully.', 'success', 'Added');
             closeManualAdd();
+            checkUnmatchedQueue();
             if (data.media_type === mediaType) {
                 loadMedia(currentPage, currentSearch);
             }
@@ -989,7 +1026,253 @@
         }
     }
 
+    // Unmatched / Skipped Queue Management
+    let unmatchedItems = [];
+
+    function extractSuggestedTitle(filename, caption) {
+        let raw = filename || caption || '';
+        raw = raw.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|ts|m2ts)$/i, '');
+        raw = raw.replace(/[._]/g, ' ');
+        raw = raw.replace(/\b(1080p|720p|480p|2160p|4k|uhd|fhd|hevc|x264|x265|h\.?264|h\.?265|web-?dl|bluray|dvdrip|hdr|10bit|aac|ddp?\d?(\.\d)?)\b.*/i, '');
+        raw = raw.replace(/^[-–—:|._\s]+/, '').trim();
+        return raw;
+    }
+
+    async function checkUnmatchedQueue() {
+        try {
+            const res = await fetch('/api/media/unmatched?limit=100');
+            if (!res.ok) return;
+            const data = await res.json();
+            unmatchedItems = data.items || [];
+            const count = data.count || unmatchedItems.length;
+            const btn = document.getElementById('unmatched-queue-btn');
+            const badge = document.getElementById('unmatched-count-badge');
+            if (btn && badge) {
+                badge.textContent = count;
+                if (count > 0) {
+                    btn.classList.remove('hidden');
+                } else {
+                    btn.classList.add('hidden');
+                }
+            }
+        } catch (e) {
+            console.error('Failed to check unmatched queue:', e);
+        }
+    }
+
+    async function openUnmatchedModal() {
+        document.getElementById('unmatched-modal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        await loadUnmatchedQueue();
+    }
+
+    function closeUnmatchedModal() {
+        document.getElementById('unmatched-modal').classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+
+    async function loadUnmatchedQueue() {
+        const body = document.getElementById('unmatched-modal-body');
+        body.innerHTML = `
+            <div class="text-center py-8 text-text-secondary">
+                <i class="fa-solid fa-circle-notch fa-spin text-2xl text-primary mb-2"></i>
+                <p>Loading skipped media...</p>
+            </div>`;
+        try {
+            const res = await fetch('/api/media/unmatched?limit=100');
+            if (!res.ok) throw new Error('Failed to load skipped queue');
+            const data = await res.json();
+            unmatchedItems = data.items || [];
+            renderUnmatchedList();
+        } catch (e) {
+            body.innerHTML = `<div class="text-center py-8 text-red-400"><i class="fa-solid fa-triangle-exclamation mb-2 text-2xl"></i><p>${maEsc(e.message)}</p></div>`;
+        }
+    }
+
+    function renderUnmatchedList() {
+        const body = document.getElementById('unmatched-modal-body');
+        const badge = document.getElementById('unmatched-count-badge');
+        const btn = document.getElementById('unmatched-queue-btn');
+        if (badge) badge.textContent = unmatchedItems.length;
+        if (btn) btn.classList.toggle('hidden', unmatchedItems.length === 0);
+
+        if (!unmatchedItems.length) {
+            body.innerHTML = `
+                <div class="text-center py-12 text-text-secondary">
+                    <span class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-500/10 text-emerald-400 mb-3 text-2xl">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </span>
+                    <h3 class="text-base font-bold text-white mb-1">Queue is Clear!</h3>
+                    <p class="text-xs">All media files have been matched and indexed cleanly.</p>
+                </div>`;
+            return;
+        }
+
+        body.innerHTML = unmatchedItems.map(item => {
+            const suggested = extractSuggestedTitle(item.file_name, item.caption);
+            const isTv = /s\d{1,2}[._\s-]*e\d{1,3}|\bseason\b|\bepisode\b/i.test(item.file_name || item.caption || '');
+            const tvMatch = (item.file_name || item.caption || '').match(/s(\d{1,2})[._\s-]*e(\d{1,3})/i);
+            const defSeason = tvMatch ? parseInt(tvMatch[1]) : 1;
+            const defEpisode = tvMatch ? parseInt(tvMatch[2]) : 1;
+
+            return `
+            <div class="glass-panel p-4 rounded-2xl border border-hairline flex flex-col gap-3" id="unmatched-card-${item.id}">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-sm font-extrabold text-white break-all">${maEsc(item.file_name || 'Unknown File')}</span>
+                            ${item.file_size ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-surface border border-hairline text-text-secondary">${maEsc(item.file_size)}</span>` : ''}
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-text-secondary bg-surface border border-hairline">Msg: ${item.msg_id}</span>
+                        </div>
+                        ${item.caption ? `<p class="text-xs text-text-secondary/80 mt-1 line-clamp-2 italic font-mono bg-background/50 p-1.5 rounded-lg border border-hairline/50" title="${maEsc(item.caption)}">${maEsc(item.caption)}</p>` : ''}
+                    </div>
+                    <button onclick="dismissUnmatchedItem('${item.id}')" title="Dismiss from queue" class="w-8 h-8 rounded-xl glass-panel text-text-secondary hover:text-red-400 hover:border-red-400/40 flex items-center justify-center shrink-0 transition">
+                        <i class="fa-solid fa-trash text-xs"></i>
+                    </button>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-2 pt-2 border-t border-hairline/40">
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <select id="unmatched-type-${item.id}" onchange="toggleUnmatchedTvFields('${item.id}')" class="ma-input text-xs py-1.5 px-2 font-bold w-24">
+                            <option value="movie" ${!isTv ? 'selected' : ''}>Movie</option>
+                            <option value="tv" ${isTv ? 'selected' : ''}>TV Show</option>
+                        </select>
+                        <div id="unmatched-tv-inputs-${item.id}" class="${isTv ? 'flex' : 'hidden'} items-center gap-1">
+                            <input id="unmatched-s-${item.id}" type="number" min="1" value="${defSeason}" placeholder="S" title="Season" class="ma-input text-xs py-1.5 px-1.5 w-12 text-center font-bold">
+                            <input id="unmatched-e-${item.id}" type="number" min="1" value="${defEpisode}" placeholder="E" title="Episode" class="ma-input text-xs py-1.5 px-1.5 w-12 text-center font-bold">
+                        </div>
+                    </div>
+                    <div class="flex-1 flex gap-2">
+                        <input id="unmatched-q-${item.id}" class="ma-input text-xs py-1.5 flex-1" value="${maEsc(suggested)}" placeholder="Movie/Show Title or TMDB ID" onkeydown="if(event.key==='Enter') searchUnmatchedCandidates('${item.id}', ${item.chat_id}, ${item.msg_id})">
+                        <button onclick="searchUnmatchedCandidates('${item.id}', ${item.chat_id}, ${item.msg_id})" class="px-3.5 py-1.5 rounded-xl bg-primary text-white font-bold text-xs shrink-0 flex items-center gap-1 hover:brightness-110 transition">
+                            <i class="fa-solid fa-magnifying-glass"></i> Search
+                        </button>
+                    </div>
+                </div>
+
+                <div id="unmatched-results-${item.id}" class="hidden space-y-2 mt-1"></div>
+            </div>`;
+        }).join('');
+    }
+
+    function toggleUnmatchedTvFields(itemId) {
+        const sel = document.getElementById(`unmatched-type-${itemId}`);
+        const tvInputs = document.getElementById(`unmatched-tv-inputs-${itemId}`);
+        if (sel && tvInputs) {
+            tvInputs.classList.toggle('hidden', sel.value !== 'tv');
+            tvInputs.classList.toggle('flex', sel.value === 'tv');
+        }
+    }
+
+    async function searchUnmatchedCandidates(itemId, chatId, msgId) {
+        const q = (document.getElementById(`unmatched-q-${itemId}`).value || '').trim();
+        const type = document.getElementById(`unmatched-type-${itemId}`).value;
+        const resBox = document.getElementById(`unmatched-results-${itemId}`);
+        if (!q) {
+            showToast('Enter a title to search.', 'error', 'Error');
+            return;
+        }
+        resBox.classList.remove('hidden');
+        resBox.innerHTML = `
+            <div class="p-3 text-center text-xs text-text-secondary">
+                <i class="fa-solid fa-circle-notch fa-spin text-primary mr-1"></i> Searching TMDb / Cinemeta...
+            </div>`;
+        try {
+            const params = new URLSearchParams({ media_type: type, query: q });
+            const res = await fetch(`/api/media/rescan/search?${params.toString()}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Search failed');
+            const list = data.results || [];
+            if (!list.length) {
+                resBox.innerHTML = `<p class="p-2 text-xs text-text-secondary italic">No matches found for "${maEsc(q)}". Try typing the English or original title.</p>`;
+                return;
+            }
+            resBox.innerHTML = list.slice(0, 5).map(cand => `
+                <div class="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-background/80 border border-hairline hover:border-primary/50 transition">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <img class="w-9 h-12 object-cover rounded-lg shrink-0 bg-surface" src="${maEsc(cand.poster) || '/static/placeholder.jpg'}" onerror="this.src='/static/placeholder.jpg'">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="text-xs font-bold text-white truncate">${maEsc(cand.title)}</span>
+                                <span class="ma-src-badge text-[9px] px-1.5 py-0.2">${maEsc(cand.source)}</span>
+                            </div>
+                            <span class="text-[11px] text-text-secondary block">${maEsc(cand.year || '—')} · ${maEsc(cand.tmdb_id || cand.imdb_id || '')}</span>
+                        </div>
+                    </div>
+                    <button onclick="resolveUnmatchedItem('${itemId}', ${chatId}, ${msgId}, '${cand.tmdb_id || cand.imdb_id}', '${type}', this)" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs shrink-0 flex items-center gap-1 shadow-md shadow-emerald-500/20 transition">
+                        <i class="fa-solid fa-check"></i> Index This
+                    </button>
+                </div>`).join('');
+        } catch (e) {
+            resBox.innerHTML = `<p class="p-2 text-xs text-red-400">${maEsc(e.message || 'Search failed')}</p>`;
+        }
+    }
+
+    async function resolveUnmatchedItem(itemId, chatId, msgId, selectedId, mediaTypeChoice, btnEl) {
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Indexing...';
+        }
+        try {
+            const payload = {
+                unmatched_id: itemId,
+                chat_id: chatId,
+                msg_id: msgId,
+                selected_id: selectedId,
+                media_type: mediaTypeChoice,
+                quality: "auto",
+            };
+            if (mediaTypeChoice === 'tv') {
+                const sEl = document.getElementById(`unmatched-s-${itemId}`);
+                const eEl = document.getElementById(`unmatched-e-${itemId}`);
+                payload.season_number = sEl ? parseInt(sEl.value) || 1 : 1;
+                payload.episode_number = eEl ? parseInt(eEl.value) || 1 : 1;
+            }
+
+            const res = await fetch('/api/media/unmatched/resolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Failed to index media');
+
+            showToast('Media indexed and added to library!', 'success', 'Success');
+            unmatchedItems = unmatchedItems.filter(x => x.id !== itemId);
+            const card = document.getElementById(`unmatched-card-${itemId}`);
+            if (card) {
+                card.remove();
+            }
+            renderUnmatchedList();
+            if (mediaTypeChoice === mediaType) {
+                loadMedia(currentPage, currentSearch);
+            }
+        } catch (e) {
+            showToast(e.message || 'Error indexing media.', 'error', 'Error');
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.innerHTML = '<i class="fa-solid fa-check"></i> Index This';
+            }
+        }
+    }
+
+    async function dismissUnmatchedItem(itemId) {
+        if (!confirm('Dismiss this file from the skipped queue?')) return;
+        try {
+            const res = await fetch(`/api/media/unmatched/${itemId}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed to dismiss');
+            showToast('Dismissed from skipped queue.', 'info', 'Dismissed');
+            unmatchedItems = unmatchedItems.filter(x => x.id !== itemId);
+            const card = document.getElementById(`unmatched-card-${itemId}`);
+            if (card) card.remove();
+            renderUnmatchedList();
+        } catch (e) {
+            showToast(e.message || 'Error dismissing item.', 'error', 'Error');
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
+        checkUnmatchedQueue();
         document.getElementById('ma-quality').addEventListener('change', (e) => {
             document.getElementById('ma-quality-custom').classList.toggle('hidden', e.target.value !== '__custom');
         });

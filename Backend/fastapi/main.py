@@ -75,6 +75,9 @@ from Backend.fastapi.routes.api_routes import (
     manual_add_media_api,
     list_manual_add_catalogs_api,
     resolve_manual_metadata_api,
+    list_unmatched_media_api,
+    delete_unmatched_media_api,
+    resolve_unmatched_media_api,
     purge_dead_links_api,
     purge_duplicates_api,
     remove_custom_catalog_item_api,
@@ -470,6 +473,19 @@ async def manual_add_catalogs(_: bool = Depends(require_auth)):
 @app.get("/api/media/manual-add/resolve-meta")
 async def manual_add_resolve_meta(media_type: str, selected_id: str, _: bool = Depends(require_auth)):
     return await resolve_manual_metadata_api(media_type, selected_id)
+
+#----- Unmatched / Skipped media queue
+@app.get("/api/media/unmatched")
+async def list_unmatched_media(limit: int = 100, _: bool = Depends(require_auth)):
+    return await list_unmatched_media_api(limit)
+
+@app.post("/api/media/unmatched/resolve")
+async def resolve_unmatched_media(payload: dict, _: bool = Depends(require_auth)):
+    return await resolve_unmatched_media_api(payload)
+
+@app.delete("/api/media/unmatched/{unmatched_id}")
+async def delete_unmatched_media(unmatched_id: str, _: bool = Depends(require_auth)):
+    return await delete_unmatched_media_api(unmatched_id)
 
 
 #----- Manual subtitle management

@@ -112,6 +112,8 @@ class Database:
                 )
                 await tracking["api_tokens"].create_index([("token", ASCENDING)], unique=True)
                 await tracking["api_tokens"].create_index([("user_id", ASCENDING)])
+                await tracking["unmatched_media"].create_index([("chat_id", ASCENDING), ("msg_id", ASCENDING)], unique=True)
+                await tracking["unmatched_media"].create_index([("created_at", DESCENDING)])
                 await self._ensure_subtitle_indexes(tracking)
             except Exception as e:
                 LOGGER.error(f"Failed creating tracking indexes: {e}")
@@ -322,6 +324,69 @@ class Database:
             {"$set": {"first_name": first_name, "username": username, "last_interaction": datetime.utcnow()}},
             upsert=True
         )
+
+    async def add_unmatched_media(self, doc: dict) -> None:
+        try:
+            chat_id = doc.get("chat_id")
+            msg_id = doc.get("msg_id")
+            if not chat_id or not msg_id:
+                return
+            clean_chat_id = int(str(chat_id).replace("-100", ""))
+            update_fields = {
+                "chat_id": clean_chat_id,
+                "msg_id": int(msg_id),
+                "file_name": doc.get("file_name", ""),
+                "file_size": doc.get("file_size", ""),
+                "raw_size": doc.get("raw_size", 0),
+                "caption": doc.get("caption", ""),
+                "created_at": doc.get("created_at") or datetime.utcnow(),
+            }
+            await self.dbs["tracking"]["unmatched_media"].update_one(
+                {"chat_id": clean_chat_id, "msg_id": int(msg_id)},
+                {"$set": update_fields},
+                upsert=True,
+            )
+        except Exception as e:
+            LOGGER.error(f"Failed to record unmatched media: {e}")
+
+    async def count_unmatched_media(self) -> int:
+        try:
+            return await self.dbs["tracking"]["unmatched_media"].count_documents({})
+        except Exception as e:
+            LOGGER.error(f"Failed to count unmatched media: {e}")
+            return 0
+
+    async def get_unmatched_media(self, limit: int = 100) -> List[dict]:
+        try:
+            cursor = self.dbs["tracking"]["unmatched_media"].find().sort("created_at", DESCENDING).limit(limit)
+            items = await cursor.to_list(None)
+            for item in items:
+                if "_id" in item:
+                    item["id"] = str(item["_id"])
+                    del item["_id"]
+                if "created_at" in item and hasattr(item["created_at"], "isoformat"):
+                    item["created_at"] = item["created_at"].isoformat()
+            return items
+        except Exception as e:
+            LOGGER.error(f"Failed to get unmatched media: {e}")
+            return []
+
+    async def remove_unmatched_media(self, unmatched_id: str) -> bool:
+        try:
+            res = await self.dbs["tracking"]["unmatched_media"].delete_one({"_id": ObjectId(unmatched_id)})
+            return res.deleted_count > 0
+        except Exception as e:
+            LOGGER.error(f"Failed to delete unmatched media: {e}")
+            return False
+
+    async def remove_unmatched_by_msg(self, chat_id: int, msg_id: int) -> bool:
+        try:
+            clean_chat_id = int(str(chat_id).replace("-100", ""))
+            res = await self.dbs["tracking"]["unmatched_media"].delete_one({"chat_id": clean_chat_id, "msg_id": int(msg_id)})
+            return res.deleted_count > 0
+        except Exception as e:
+            LOGGER.error(f"Failed to remove unmatched by msg: {e}")
+            return False
 
 
     async def get_expired_users(self) -> List[dict]:

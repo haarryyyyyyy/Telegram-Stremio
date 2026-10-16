@@ -17,6 +17,7 @@ from Backend.helper.metadata import extract_default_id, metadata
 from Backend.helper.pyro import (
     apply_video_thumb_to_metadata,
     clean_filename,
+    extract_caption_candidates,
     extract_media_name,
     finalize_media_name,
     get_readable_file_size,
@@ -90,6 +91,7 @@ async def process_file():
             continue
 
         if updated_id:
+            create_task(db.remove_unmatched_by_msg(int(channel), msg_id))
             start_single_media_catalog_sync(
                 db,
                 tmdb_id=metadata_info.get("tmdb_id"),
@@ -244,11 +246,39 @@ async def file_receive_handler(client: Client, message: Message):
             await message.reply_text("> Not supported")
             return
 
-        _, title, msg_id, raw_size, size, channel = _extract_fields(message)
+        file, title, msg_id, raw_size, size, channel = _extract_fields(message)
+        channel_int = int(channel)
 
-        metadata_info = await metadata(clean_filename(title), int(channel), msg_id, override_id=override_id or extract_default_id(message.caption or ""), season_hint=season_hint)
+        metadata_info = await metadata(clean_filename(title), channel_int, msg_id, override_id=override_id or extract_default_id(message.caption or ""), season_hint=season_hint)
+        if metadata_info is None and message.caption:
+            for cand in extract_caption_candidates(message.caption):
+                if cand == clean_filename(title):
+                    continue
+                LOGGER.info(f"[Metadata Fallback] Retrying with caption title '{cand}' for msg {msg_id}")
+                try:
+                    metadata_info = await metadata(
+                        cand,
+                        channel_int,
+                        msg_id,
+                        override_id=override_id or extract_default_id(message.caption or ""),
+                        season_hint=season_hint
+                    )
+                    if metadata_info is not None:
+                        LOGGER.info(f"[Metadata Fallback] Succeeded using caption candidate: '{cand}'")
+                        break
+                except Exception as e:
+                    LOGGER.debug(f"[Metadata Fallback] Candidate failed: {e}")
+
         if metadata_info is None:
             LOGGER.warning(f"Metadata failed for file: {title} (ID: {msg_id})")
+            await db.add_unmatched_media({
+                "chat_id": channel_int,
+                "msg_id": msg_id,
+                "file_name": getattr(file, "file_name", "") or title,
+                "file_size": size,
+                "raw_size": raw_size,
+                "caption": message.caption or "",
+            })
             await route_to_skip_channel(client, message)
             return
 

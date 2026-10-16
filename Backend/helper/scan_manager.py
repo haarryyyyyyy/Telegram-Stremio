@@ -9,7 +9,7 @@ from pyrogram.errors import FloodWait, ChannelPrivate, ChatAdminRequired
 from Backend.logger import LOGGER
 from Backend.helper.encrypt import encode_string, decode_string
 from Backend.helper.metadata import metadata, extract_default_id
-from Backend.helper.pyro import apply_video_thumb_to_metadata, clean_filename, extract_media_name, finalize_media_name, get_readable_file_size
+from Backend.helper.pyro import apply_video_thumb_to_metadata, clean_filename, extract_caption_candidates, extract_media_name, finalize_media_name, get_readable_file_size
 from Backend.helper.skip_channel import is_skip_channel, route_to_skip_channel
 from Backend.helper.split_files import parse_split_info
 from Backend.helper.subtitles import ingest_subtitle, is_subtitle_file
@@ -505,12 +505,34 @@ class ScanManager:
                 clean_filename(title), channel_int, msg_id,
                 override_id=extract_default_id(message.caption or ""),
             )
+            if metadata_info is None and message.caption:
+                for cand in extract_caption_candidates(message.caption):
+                    if cand == clean_filename(title):
+                        continue
+                    try:
+                        metadata_info = await metadata(
+                            cand, channel_int, msg_id,
+                            override_id=extract_default_id(message.caption or ""),
+                        )
+                        if metadata_info is not None:
+                            LOGGER.info(f"[ScanManager Fallback] Succeeded using caption candidate: '{cand}'")
+                            break
+                    except Exception:
+                        pass
         except Exception as e:
             LOGGER.warning(f"[ScanManager] Metadata exception for msg {msg_id}: {e}")
             metadata_info = None
 
         if metadata_info is None:
             s["counters"]["skipped_meta"] += 1
+            await db.add_unmatched_media({
+                "chat_id": channel_int,
+                "msg_id": msg_id,
+                "file_name": getattr(file, "file_name", "") or title,
+                "file_size": size,
+                "raw_size": raw_size,
+                "caption": message.caption or "",
+            })
             try:
                 await route_to_skip_channel(client, message)
             except Exception as e:
@@ -534,6 +556,7 @@ class ScanManager:
                     status=insert_status,
                 )
             if updated_id:
+                await db.remove_unmatched_by_msg(channel_int, msg_id)
                 if insert_status.get("duplicate_skipped"):
                     s["counters"]["skipped_dup"] += 1
                 else:

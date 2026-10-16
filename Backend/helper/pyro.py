@@ -309,6 +309,42 @@ def extract_media_name(caption: Optional[str], file_name: Optional[str]) -> str:
     return cap or fn or "unknown_file"
 
 
+_CAPTION_META_LINE_PATTERN = re.compile(
+    r"(?i)^(?:audio|language|languages|subtitles?|quality|resolution|codec|size|format|duration|runtime|encoder|channel|join)\s*[:：-]"
+)
+
+
+def extract_caption_candidates(caption: Optional[str]) -> list[str]:
+    """Extract potential media title candidates from a Telegram message caption."""
+    if not caption or not caption.strip():
+        return []
+
+    lines = [remove_urls(l).strip() for l in caption.splitlines() if l.strip()]
+    cues_matches = []
+    plain_matches = []
+
+    for line in lines:
+        if _CAPTION_META_LINE_PATTERN.search(line) or _PROMO_PATTERN.search(line):
+            continue
+        line = _EMOJI_PATTERN.sub("", line)
+        line = _DECORATION_PATTERN.sub("", line)
+        line = _CHANNEL_TAG_PATTERN.sub("", line)
+        line = re.sub(r"^[-–—:|._\s]+", "", line).strip()
+        if len(line) < 2:
+            continue
+        cleaned_line = clean_filename(line)
+        if len(cleaned_line) < 2 or cleaned_line == "unknown_file":
+            continue
+        if _MEDIA_CUE_PATTERN.search(cleaned_line):
+            if cleaned_line not in cues_matches:
+                cues_matches.append(cleaned_line)
+        else:
+            if cleaned_line not in plain_matches:
+                plain_matches.append(cleaned_line)
+
+    return cues_matches + plain_matches
+
+
 def get_readable_time(seconds: int) -> str:
     count = 0
     readable_time = ""

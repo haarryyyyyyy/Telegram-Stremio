@@ -1022,8 +1022,8 @@ async def manual_add_media_api(payload: dict) -> dict:
 
     stream = payload.get("stream") or {}
     quality = str(stream.get("quality") or "").strip()
-    if not quality:
-        raise HTTPException(status_code=400, detail="A quality label (e.g. 1080p) is required.")
+    if quality.lower() == "auto":
+        quality = ""
 
     #----- One source = single file, multiple sources = split file parts (in order)
     part_sources = stream.get("parts")
@@ -1049,6 +1049,8 @@ async def manual_add_media_api(payload: dict) -> dict:
             raise HTTPException(status_code=500, detail=f"Could not read that message: {exc}")
 
     primary = resolved_parts[0]
+    if not quality:
+        quality = primary.get("quality") or "HD"
     is_split = len(resolved_parts) > 1
     raw_name = (stream.get("name") or primary["name"]).strip()
     name = strip_part_suffix(raw_name) if is_split else raw_name
@@ -1138,6 +1140,7 @@ async def manual_add_media_api(payload: dict) -> dict:
         if not updated_id:
             raise HTTPException(status_code=500, detail="Failed to add media (validation error).")
         await stamp_caption_by_ref(client, p_channel, p_msg, metadata_info)
+        await db.remove_unmatched_by_msg(p_channel, p_msg)
 
     result_tmdb_id = base["tmdb_id"]
     location = await db.find_media_doc(media_type, result_tmdb_id)
@@ -1194,6 +1197,51 @@ async def manual_add_media_api(payload: dict) -> dict:
         "db_index": result_db_index,
         "media_type": media_type,
     }
+
+
+#----- Unmatched / Skipped media queue APIs
+async def list_unmatched_media_api(limit: int = 100) -> dict:
+    items = await db.get_unmatched_media(limit=limit)
+    count = await db.count_unmatched_media()
+    return {"items": items, "count": count}
+
+
+async def delete_unmatched_media_api(unmatched_id: str) -> dict:
+    success = await db.remove_unmatched_media(unmatched_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Item not found or already dismissed")
+    count = await db.count_unmatched_media()
+    return {"status": "ok", "deleted": True, "remaining_count": count}
+
+
+async def resolve_unmatched_media_api(payload: dict) -> dict:
+    chat_id = payload.get("chat_id")
+    msg_id = payload.get("msg_id")
+    selected_id = payload.get("selected_id")
+    media_type = payload.get("media_type") or "movie"
+    unmatched_id = payload.get("unmatched_id")
+
+    if not chat_id or not msg_id or not selected_id:
+        raise HTTPException(status_code=400, detail="chat_id, msg_id, and selected_id are required.")
+
+    add_payload = {
+        "media_type": media_type,
+        "selected_id": str(selected_id),
+        "stream": {
+            "chat_id": int(chat_id),
+            "msg_id": int(msg_id),
+            "quality": payload.get("quality") or "auto",
+        },
+    }
+    if media_type == "tv":
+        add_payload["season_number"] = payload.get("season_number", 1)
+        add_payload["episode_number"] = payload.get("episode_number", 1)
+
+    result = await manual_add_media_api(add_payload)
+    if unmatched_id:
+        await db.remove_unmatched_media(unmatched_id)
+    await db.remove_unmatched_by_msg(int(chat_id), int(msg_id))
+    return {"status": "ok", "result": result}
 
 
 #----- Custom catalog APIs

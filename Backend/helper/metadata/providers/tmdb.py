@@ -1,6 +1,7 @@
 """TMDb metadata provider."""
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from themoviedb import aioTMDb
@@ -10,6 +11,7 @@ from Backend.helper.metadata.common import (
     ensure_media_ids,
     logo_from_imdb,
     parse_year_range,
+    title_similarity,
     ALT_TITLE_LOOKUPS,
     ALT_TITLES_CACHE,
     API_SEMAPHORE,
@@ -195,7 +197,25 @@ async def pick_best(results, query_title: str, query_year: Optional[int], media_
         if best_score >= STRONG_MATCH:
             break
 
-    return best_item if best_score >= TMDB_THRESHOLD and best_item is not None else None
+    if best_score >= TMDB_THRESHOLD and best_item is not None:
+        return best_item
+
+    # Rule 1 Fallback: TMDB search returned results. If #1 result matches release year and has plausible overlap
+    if results and query_year:
+        top = results[0]
+        top_title, top_year = tmdb_title_year(top, media_type)
+        if top_year and abs(int(query_year) - top_year) <= 1:
+            q_clean = re.sub(r"[^\w]", "", query_title).lower()
+            t_clean = re.sub(r"[^\w]", "", top_title).lower()
+            orig = getattr(top, "original_title", None) or getattr(top, "original_name", None) or ""
+            o_clean = re.sub(r"[^\w]", "", orig).lower()
+            prefix_match = len(q_clean) >= 3 and (t_clean.startswith(q_clean[:3]) or o_clean.startswith(q_clean[:3]) or q_clean.startswith(t_clean[:3]))
+            sim = max(title_similarity(q_clean, t_clean), title_similarity(q_clean, o_clean)) if (t_clean or o_clean) else 0.0
+            if prefix_match or sim >= 0.35:
+                LOGGER.info(f"[TMDb Fallback] Accepted #1 search result '{top_title}' ({top_year}) for '{query_title}' ({query_year}) [sim={sim:.2f}, prefix={prefix_match}]")
+                return top
+
+    return None
 
 
 async def safe_search(title: str, type_: str, year: Optional[int] = None):
