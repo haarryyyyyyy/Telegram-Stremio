@@ -102,21 +102,30 @@ class Database:
 
     #----- Create the indexes catalog/stream lookups rely on.
     #----- create_index is idempotent, so this is safe to call repeatedly.
+    @staticmethod
+    async def _safe_create_index(collection, keys, **kwargs) -> None:
+        try:
+            await collection.create_index(keys, **kwargs)
+        except Exception as e:
+            # Code 86 is IndexKeySpecsConflict (e.g. sparse=True vs sparse=False)
+            if getattr(e, "code", None) == 86 or "IndexKeySpecsConflict" in str(e):
+                LOGGER.debug(f"Index on {collection.name} for {keys} already exists with compatible specs; keeping existing index.")
+            else:
+                LOGGER.error(f"Failed creating index on {collection.name} for {keys}: {e}")
+
     async def ensure_indexes(self) -> None:
         tracking = self.dbs.get("tracking")
         if tracking is not None:
-            try:
-                await tracking["custom_catalogs"].create_index([("updated_at", DESCENDING)])
-                await tracking["custom_catalogs"].create_index(
-                    [("items.tmdb_id", ASCENDING), ("items.media_type", ASCENDING)]
-                )
-                await tracking["api_tokens"].create_index([("token", ASCENDING)], unique=True)
-                await tracking["api_tokens"].create_index([("user_id", ASCENDING)])
-                await tracking["unmatched_media"].create_index([("chat_id", ASCENDING), ("msg_id", ASCENDING)], unique=True)
-                await tracking["unmatched_media"].create_index([("created_at", DESCENDING)])
-                await self._ensure_subtitle_indexes(tracking)
-            except Exception as e:
-                LOGGER.error(f"Failed creating tracking indexes: {e}")
+            await self._safe_create_index(tracking["custom_catalogs"], [("updated_at", DESCENDING)])
+            await self._safe_create_index(
+                tracking["custom_catalogs"],
+                [("items.tmdb_id", ASCENDING), ("items.media_type", ASCENDING)]
+            )
+            await self._safe_create_index(tracking["api_tokens"], [("token", ASCENDING)], unique=True, sparse=True)
+            await self._safe_create_index(tracking["api_tokens"], [("user_id", ASCENDING)])
+            await self._safe_create_index(tracking["unmatched_media"], [("chat_id", ASCENDING), ("msg_id", ASCENDING)], unique=True)
+            await self._safe_create_index(tracking["unmatched_media"], [("created_at", DESCENDING)])
+            await self._ensure_subtitle_indexes(tracking)
 
         for db_key in list(self.dbs.keys()):
             if db_key.startswith("storage_"):
@@ -138,8 +147,8 @@ class Database:
                     LOGGER.info(f"Dropped stale subtitle index {name}")
                 except Exception as e:
                     LOGGER.error(f"Failed dropping subtitle index {name}: {e}")
-        await subs.create_index([("chat_id", ASCENDING), ("msg_id", ASCENDING)], unique=True)
-        await subs.create_index([("imdb_id", ASCENDING), ("season", ASCENDING), ("episode", ASCENDING)])
+        await self._safe_create_index(subs, [("chat_id", ASCENDING), ("msg_id", ASCENDING)], unique=True)
+        await self._safe_create_index(subs, [("imdb_id", ASCENDING), ("season", ASCENDING), ("episode", ASCENDING)])
 
     #----- Ensure per-storage-DB indexes on the movie/tv collections.
     #----- tmdb_id + imdb_id drive catalog hydration and stream lookups.
@@ -148,16 +157,14 @@ class Database:
         if db is None:
             return
         for collection_name in ("movie", "tv"):
-            try:
-                await db[collection_name].create_index([("tmdb_id", ASCENDING)])
-                await db[collection_name].create_index([("imdb_id", ASCENDING)])
-                await db[collection_name].create_index([("kitsu_id", ASCENDING)])
-                await db[collection_name].create_index([("updated_on", DESCENDING)])
-                await db[collection_name].create_index([("telegram.id", ASCENDING)])
-                if collection_name == "tv":
-                    await db[collection_name].create_index([("seasons.episodes.telegram.id", ASCENDING)])
-            except Exception as e:
-                LOGGER.error(f"Failed creating index on {db_key}/{collection_name}: {e}")
+            col = db[collection_name]
+            await self._safe_create_index(col, [("tmdb_id", ASCENDING)])
+            await self._safe_create_index(col, [("imdb_id", ASCENDING)])
+            await self._safe_create_index(col, [("kitsu_id", ASCENDING)])
+            await self._safe_create_index(col, [("updated_on", DESCENDING)])
+            await self._safe_create_index(col, [("telegram.id", ASCENDING)], sparse=True)
+            if collection_name == "tv":
+                await self._safe_create_index(col, [("seasons.episodes.telegram.id", ASCENDING)], sparse=True)
 
     async def disconnect(self):
         for client in self.clients.values():

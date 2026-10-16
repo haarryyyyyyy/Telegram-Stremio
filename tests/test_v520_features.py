@@ -78,6 +78,21 @@ class TestV520Features(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(res["tokens"]), 1)
         self.assertEqual(res["tokens"][0]["token"], "test-token-123")
 
+    async def test_safe_create_index_conflict(self):
+        from Backend.helper.database import Database
+        mock_col = MagicMock()
+        mock_col.name = "test_col"
+        
+        # Simulate MongoDB IndexKeySpecsConflict (code 86)
+        class MongoConflictError(Exception):
+            code = 86
+
+        mock_col.create_index = AsyncMock(side_effect=MongoConflictError("An existing index has the same name as the requested index."))
+        
+        # Should not raise an exception
+        await Database._safe_create_index(mock_col, [("token", 1)], unique=True)
+        mock_col.create_index.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
