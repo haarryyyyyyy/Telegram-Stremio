@@ -1,4 +1,5 @@
 import asyncio
+import random
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -389,6 +390,46 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
         catalogs = [
             {
                 "type": "movie",
+                "id": "spotlight",
+                "name": "🌟 15m Spotlight",
+                "extra": [
+                    {"name": "genre", "isRequired": False, "options": GENRES},
+                    {"name": "skip"}
+                ],
+                "extraSupported": ["genre", "skip"]
+            },
+            {
+                "type": "series",
+                "id": "spotlight",
+                "name": "🌟 15m Spotlight",
+                "extra": [
+                    {"name": "genre", "isRequired": False, "options": GENRES},
+                    {"name": "skip"}
+                ],
+                "extraSupported": ["genre", "skip"]
+            },
+            {
+                "type": "movie",
+                "id": "recommended",
+                "name": "🎬 Recommended",
+                "extra": [
+                    {"name": "genre", "isRequired": False, "options": GENRES},
+                    {"name": "skip"}
+                ],
+                "extraSupported": ["genre", "skip"]
+            },
+            {
+                "type": "series",
+                "id": "recommended",
+                "name": "🎬 Recommended",
+                "extra": [
+                    {"name": "genre", "isRequired": False, "options": GENRES},
+                    {"name": "skip"}
+                ],
+                "extraSupported": ["genre", "skip"]
+            },
+            {
+                "type": "movie",
                 "id": "latest_movies",
                 "name": "Latest",
                 "extra": [
@@ -589,6 +630,29 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
             all_items = search_results.get("results", [])
             db_media_type = "tv" if media_type == "series" else "movie"
             items = [item for item in all_items if item.get("media_type") == db_media_type]
+        elif id == "spotlight":
+            vis_filter = _merge_filters(_visibility_query(token_data), _not_exclusive_clause())
+            if media_type == "movie":
+                data = await db.sort_movies([("rating", "desc")], 1, 100, genre_filter=genre_filter, extra_filter=vis_filter)
+                all_candidates = data.get("movies", [])
+            else:
+                data = await db.sort_tv_shows([("rating", "desc")], 1, 100, genre_filter=genre_filter, extra_filter=vis_filter)
+                all_candidates = data.get("tv_shows", [])
+            slot = int(time.time() // 900)
+            rng = random.Random(slot)
+            shuffled = list(all_candidates)
+            rng.shuffle(shuffled)
+            start = (page - 1) * PAGE_SIZE
+            items = shuffled[start:start + PAGE_SIZE]
+        elif id == "recommended":
+            vis_filter = _merge_filters(_visibility_query(token_data), _not_exclusive_clause())
+            sort_params = [("views", "desc"), ("rating", "desc")]
+            if media_type == "movie":
+                data = await db.sort_movies(sort_params, page, PAGE_SIZE, genre_filter=genre_filter, extra_filter=vis_filter)
+                items = data.get("movies", [])
+            else:
+                data = await db.sort_tv_shows(sort_params, page, PAGE_SIZE, genre_filter=genre_filter, extra_filter=vis_filter)
+                items = data.get("tv_shows", [])
         else:
             if "latest" in id:
                 sort_params = [("updated_on", "desc")]
@@ -1208,6 +1272,10 @@ async def configure_addon(token: str, request: Request):
 #----- Catalogs this token can see, in effective (token or global) order
 async def _addon_catalogs_for_token(token_data: dict) -> list:
     entries = [
+        {"id": "spotlight", "name": "🌟 15m Spotlight", "type": "movie"},
+        {"id": "spotlight", "name": "🌟 15m Spotlight", "type": "series"},
+        {"id": "recommended", "name": "🎬 Recommended", "type": "movie"},
+        {"id": "recommended", "name": "🎬 Recommended", "type": "series"},
         {"id": "latest_movies", "name": "Latest Movies", "type": "movie"},
         {"id": "top_movies", "name": "Popular Movies", "type": "movie"},
         {"id": "latest_series", "name": "Latest Series", "type": "series"},

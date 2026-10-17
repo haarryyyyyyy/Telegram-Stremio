@@ -69,7 +69,7 @@ UPSTREAM_BRANCH = db_branch or environ.get("UPSTREAM_BRANCH", "").strip() or "ma
 # ── Git update ────────────────────────────────────────────────────────────────
 if UPSTREAM_REPO:
     if not Path(".git").exists():
-        srun(f"git init -q && git remote add origin {UPSTREAM_REPO}", shell=True)
+        srun(f"git init -q && git remote add origin {UPSTREAM_REPO} && git fetch origin {UPSTREAM_BRANCH} -q && git checkout -B {UPSTREAM_BRANCH} origin/{UPSTREAM_BRANCH} -q", shell=True)
     else:
         srun(f"git remote set-url origin {UPSTREAM_REPO}", shell=True)
 

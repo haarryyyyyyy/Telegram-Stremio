@@ -66,6 +66,18 @@ async def stop_client(client_id: int) -> None:
             LOGGER.warning(f"Error stopping Client {client_id}: {e}")
 
 
+#----- Trigger pre-warming for Telegram DCs (1, 2, 4, 5) with active auth exports
+def trigger_dc_prewarm(client: Client, client_id: int) -> None:
+    async def _prewarm():
+        try:
+            from Backend.fastapi.routes.stream_routes import _get_streamer
+            streamer = _get_streamer(client, client_id)
+            await streamer._prewarm_sessions()
+        except Exception as e:
+            LOGGER.warning(f"DC pre-warming failed for client {client_id}: {e}")
+    create_task(_prewarm())
+
+
 #----- Bring up the main client plus every configured extra client
 async def initialize_clients() -> None:
     multi_clients[0], work_loads[0] = StreamBot, 0
@@ -77,6 +89,9 @@ async def initialize_clients() -> None:
     except Exception as e:
         LOGGER.warning(f"Could not get DC for StreamBot: {e}")
         client_dc_map[0] = None
+
+    # Pre-warm main bot on DCs 1, 2, 4, 5 for instant stream start (<300ms)
+    trigger_dc_prewarm(StreamBot, 0)
 
     all_tokens = TokenParser.parse_from_settings()
     if not all_tokens:
@@ -91,6 +106,7 @@ async def initialize_clients() -> None:
     for client_id, token in all_tokens.items():
         if client_id in started:
             client_tokens[client_id] = token
+            trigger_dc_prewarm(started[client_id], client_id)
 
     if len(multi_clients) != 1:
         LOGGER.info(f"Multi-Client Mode Enabled with {len(multi_clients)} clients")
@@ -119,6 +135,7 @@ async def reload_multi_token_clients() -> dict:
         for cid, tok in to_start.items():
             if cid in started:
                 client_tokens[cid] = tok
+                trigger_dc_prewarm(started[cid], cid)
 
     LOGGER.info(
         f"Multi-token reload complete — {len(to_stop)} stopped, "

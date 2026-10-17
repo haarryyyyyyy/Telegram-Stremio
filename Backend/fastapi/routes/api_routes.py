@@ -2361,18 +2361,10 @@ async def _perform_restart(delay: float = 1.0) -> None:
         os._exit(0)
 
 
-#----- Trigger a restart from the web (supports single node or all cluster nodes)
+#----- Trigger a restart from the web for single instance
 async def restart_app_api(target: str = "all") -> dict:
-    target_clean = str(target or "all").strip()
-    await db.request_cluster_restart(target_clean)
-
-    if target_clean.lower() == "all" or target_clean.lower() == str(Telegram.NODE_NAME).lower():
-        asyncio.create_task(_perform_restart(delay=1.0))
-        msg = "Restart initiated for all cluster nodes (VM 1 & VM 2)." if target_clean.lower() == "all" else f"Restart initiated for {Telegram.NODE_NAME}."
-    else:
-        msg = f"Restart command dispatched to cluster node '{target_clean}'."
-
-    return {"status": "success", "message": msg}
+    asyncio.create_task(_perform_restart(delay=1.0))
+    return {"status": "success", "message": "Server restart initiated. Pulling updates and reloading..."}
 
 
 #----- Return live status and heartbeats of all cluster nodes (VM 1, VM 2, etc.)

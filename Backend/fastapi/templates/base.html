@@ -496,13 +496,13 @@ if (!navigator.clipboard) Object.defineProperty(navigator, 'clipboard', { value:
       </div>
       <div class="min-w-0 leading-snug">
         <p class="text-sm font-bold">New version <span id="update-latest" class="font-extrabold"></span> available</p>
-        <p class="text-xs sm:text-sm opacity-90 mt-0.5">Current: <span id="update-current" class="font-semibold"></span> — Updates all cluster VMs automatically.</p>
+        <p class="text-xs sm:text-sm opacity-90 mt-0.5">Current: <span id="update-current" class="font-semibold"></span> — Pulls latest code and restarts server.</p>
       </div>
     </div>
     <div class="shrink-0 flex items-center gap-2">
-      <button onclick="updateClusterNow()" class="px-3.5 py-1.5 rounded-xl bg-black text-white text-xs font-extrabold hover:bg-black/85 active:scale-95 transition flex items-center gap-1.5 shadow-md">
+      <button onclick="updateServerNow()" class="px-3.5 py-1.5 rounded-xl bg-black text-white text-xs font-extrabold hover:bg-black/85 active:scale-95 transition flex items-center gap-1.5 shadow-md">
         <i class="fa-solid fa-arrows-rotate"></i>
-        <span>Update All Nodes</span>
+        <span>Update Server</span>
       </button>
     </div>
   </div>
@@ -878,13 +878,13 @@ if(navContainer) {
     });
 })();
 
-async function updateClusterNow() {
-    if (!confirm('Update and restart ALL cluster VM instances (VM 1 and VM 2)? Each node will pull the latest code and install any new dependencies.')) return;
+async function updateServerNow() {
+    if (!confirm('Update and restart server? The server will pull the latest code from GitHub and restart.')) return;
     try {
-        const res = await fetch('/api/admin/restart?target=all', { method: 'POST' });
-        const data = await res.json();
+        const res = await fetch('/api/admin/restart', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-            alert(data.message || 'Update dispatched to all cluster nodes.');
+            alert(data.message || 'Update initiated. Server will reload shortly.');
             setTimeout(() => window.location.reload(), 4000);
         } else {
             alert(data.detail || 'Update request failed.');
@@ -893,6 +893,7 @@ async function updateClusterNow() {
         alert('Network error while requesting update.');
     }
 }
+const updateClusterNow = updateServerNow;
 {% endif %}
 
 if ('serviceWorker' in navigator) {
