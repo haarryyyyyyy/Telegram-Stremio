@@ -121,5 +121,6 @@ async def _cluster_monitor_loop(bot_client) -> None:
 
 
 def start_cluster_monitor(bot_client) -> None:
-    # Single-VM mode: no cluster peer polling or distributed restart needed.
-    pass
+    global _monitor_task
+    if _monitor_task is None or _monitor_task.done():
+        _monitor_task = asyncio.create_task(_cluster_monitor_loop(bot_client))

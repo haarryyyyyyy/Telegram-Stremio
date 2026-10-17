@@ -77,8 +77,7 @@ async def start_services():
         link_checker_task = DeadLinkChecker(db, app, check_interval_hours=24)
         loop.create_task(link_checker_task.start())
 
-        # Single-VM mode: no cluster peer polling or distributed restart needed
-        # start_cluster_monitor(StreamBot)
+        start_cluster_monitor(StreamBot)
 
         LOGGER.info("Telegram-Stremio Started Successfully!")
         await idle()

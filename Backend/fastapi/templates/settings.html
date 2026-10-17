@@ -215,16 +215,23 @@
         <hr class="divider">
 
         <!-- Restart -->
-        <label class="s-label">Update &amp; Restart Server</label>
+        <label class="s-label">Update &amp; Restart Cluster</label>
         <p style="font-size:0.83rem;color:var(--text-sec);margin-bottom:1rem">
-            Pulls the latest code from GitHub and restarts the server instance.
+            Pulls the latest code from the upstream repository/branch and restarts the server instances.
+            Choose whether to update all load-balanced cluster nodes (VM 1 &amp; VM 2) simultaneously or just the currently connected instance.
         </p>
         <div class="flex flex-wrap items-center gap-3">
-            <button id="restart-btn" onclick="restartApp()"
+            <button id="restart-btn" onclick="restartApp('all')"
                 class="flex items-center gap-2 px-6 py-2.5 rounded-full font-bold text-sm text-white shadow-lg transition-all"
                 style="background:#ef4444;box-shadow:0 0 18px rgba(239,68,68,0.4)">
                 <i class="fa-solid fa-arrows-rotate"></i>
-                <span>Update &amp; Restart</span>
+                <span>Update &amp; Restart All VMs</span>
+            </button>
+            <button id="restart-node-btn" onclick="restartApp('current')"
+                class="add-btn flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold"
+                type="button">
+                <i class="fa-solid fa-power-off"></i>
+                <span>Restart Connected VM Only</span>
             </button>
         </div>
     </div>
@@ -1886,14 +1893,18 @@ function toggleLiveLogs() {
     if (on) { loadLogs(); logLiveTimer = setInterval(loadLogs, 2000); }
 }
 
-async function restartApp() {
-    if (!confirm('Update and restart server? The server will pull the latest code from GitHub and restart.')) return;
+async function restartApp(target = 'all') {
+    const isAll = target === 'all';
+    const confirmText = isAll
+        ? 'Update and restart ALL cluster instances (VM 1 and VM 2)? Each node will pull the latest code and restart.'
+        : 'Restart the connected instance only? It will pull the latest code and restart.';
+    if (!confirm(confirmText)) return;
 
     let before = null;
     try { before = (await (await fetch('/api/admin/health')).json()).start_time; } catch (e) {}
 
     try {
-        const res = await fetch('/api/admin/restart', { method: 'POST' });
+        const res = await fetch(`/api/admin/restart?target=${encodeURIComponent(target)}`, { method: 'POST' });
         const data = await res.json();
         if (!res.ok) { showToast(data.detail || 'Could not restart.', 'error', 'Error'); return; }
         showToast(data.message || 'Restart initiated.', 'info', 'Restarting');
@@ -1921,7 +1932,7 @@ async function restartApp() {
             }
         } catch (e) {
             wasDown = true;
-            msg.textContent = 'Server updating & restarting — waiting to reconnect…';
+            msg.textContent = isAll ? 'Cluster nodes updating & restarting — waiting to reconnect…' : 'Server offline — waiting for it to come back…';
         }
     }, 2000);
 }

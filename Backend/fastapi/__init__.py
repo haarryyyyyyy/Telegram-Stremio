@@ -1,5 +1,4 @@
 try:
-    import sys
     import uvicorn
 
     from Backend.config import Telegram
@@ -7,12 +6,11 @@ try:
 
     #----- Uvicorn server bound to the FastAPI app
     Port = Telegram.PORT
-    loop_engine = "uvloop" if sys.platform != "win32" else "asyncio"
     config = uvicorn.Config(
         app=app,
         host="0.0.0.0",
         port=Port,
-        loop=loop_engine,
+        loop="uvloop",
         http="httptools",
         timeout_keep_alive=60,
         timeout_graceful_shutdown=5,

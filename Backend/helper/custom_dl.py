@@ -83,13 +83,8 @@ class ByteStreamer:
 
     async def _prewarm_sessions(self):
         common_dcs = [1, 2, 4, 5]
-        try:
-            test_mode = await self.client.storage.test_mode()
-            current_dc = await self.client.storage.dc_id()
-        except Exception as e:
-            LOGGER.warning(f"Could not read storage for DC pre-warm (client {self.client_index}): {e}")
-            return
-
+        test_mode = await self.client.storage.test_mode()
+        current_dc = await self.client.storage.dc_id()
         for dc in common_dcs:
             if dc in self.client.media_sessions or dc == current_dc:
                 continue
@@ -104,24 +99,21 @@ class ByteStreamer:
                 for _ in range(6):
                     try:
                         exported = await self.client.invoke(raw.functions.auth.ExportAuthorization(dc_id=dc))
-                        await session.send(raw.functions.auth.ImportAuthorization(id=exported.id, bytes=exported.bytes))
+                        await session.send(raw.functions.auth.ImportAuthorization(id=exported.id,bytes=exported.bytes,))
                         imported = True
                         break
                     except AuthBytesInvalid:
                         await asyncio.sleep(0.5)
-                    except FloodWait as fw:
-                        await asyncio.sleep(fw.value or 1)
-                    except (RPCError, OSError, asyncio.TimeoutError, TimeoutError):
+                    except OSError:
                         await asyncio.sleep(1)
                     except Exception:
                         break
                 if imported:
                     self.client.media_sessions[dc] = session
-                    LOGGER.info(f"Bot {self.client_index}: Pre-warmed MTProto session for DC {dc}")
                 else:
                     await session.stop()
-            except Exception as e:
-                LOGGER.warning(f"Bot {self.client_index}: Could not pre-warm DC {dc}: {e}")
+            except Exception:
+                continue
 
     #----- Fetch (and cache) Telegram FileId properties for a message
     async def get_file_properties(self, chat_id: int, message_id: int) -> FileId:
@@ -209,13 +201,19 @@ class ByteStreamer:
         primary_refresh = await _make_refresh_fn(location_box, self, file_id)
         session_pool = [(client_index, media_session, location_box, primary_refresh)]
 
-        # Immediately include extra bot workers into session_pool for striped parallel chunk downloading
-        if extra_clients:
+        async def _setup_extra_clients():
+            if not extra_clients:
+                return
             for item in extra_clients:
+                if stop_event.is_set():
+                    break
                 try:
                     if len(item) == 2:
                         ec_idx, ec_streamer = item
-                        ec_file_id = file_id
+                        if chat_id and message_id:
+                            ec_file_id = await ec_streamer.get_file_properties(chat_id=chat_id, message_id=message_id)
+                        else:
+                            ec_file_id = file_id
                     else:
                         ec_idx, ec_streamer, ec_file_id = item
                     ec_session = await ec_streamer._get_media_session(ec_file_id)
@@ -223,7 +221,10 @@ class ByteStreamer:
                     ec_refresh = await _make_refresh_fn(ec_loc_box, ec_streamer, ec_file_id)
                     session_pool.append((ec_idx, ec_session, ec_loc_box, ec_refresh))
                 except Exception as e:
-                    LOGGER.warning("Could not add extra bot client %s to initial pool: %s", item[0] if item else "?", e)
+                    LOGGER.warning("Skipping extra client (session setup failed): %s", e)
+
+        if extra_clients:
+            asyncio.create_task(_setup_extra_clients())
 
         async def fetch_chunk_with_retries(seq_idx: int, off: int) -> Tuple[int, Optional[bytes]]:
             base_slot = seq_idx % len(session_pool)
