@@ -151,3 +151,19 @@ class Database:
             if doc.get("tmdb_id") and doc["tmdb_id"] not in ids:
                 ids.append(doc["tmdb_id"])
         return ids
+
+    async def get_settings(self) -> Optional[Dict[str, Any]]:
+        doc = await self.settings.find_one({"_id": "app_settings"})
+        if not doc:
+            return None
+        doc.pop("_id", None)
+        return doc
+
+    async def save_settings(self, settings_data: Dict[str, Any]) -> None:
+        data = dict(settings_data)
+        data["updated_at"] = time.time()
+        await self.settings.update_one(
+            {"_id": "app_settings"},
+            {"$set": data},
+            upsert=True,
+        )

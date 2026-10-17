@@ -28,25 +28,31 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       <!-- Navigation Tabs -->
       <nav class="flex space-x-1 sm:space-x-2">
-        <button @click="activeTab = 'unmatched'" :class="activeTab === 'unmatched' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-2">
+        <button @click="activeTab = 'unmatched'" :class="activeTab === 'unmatched' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5">
           <i class="fa-solid fa-list-check"></i>
-          <span>Unmatched Queue</span>
+          <span>Queue</span>
           <span x-show="stats.unmatched > 0" x-text="stats.unmatched" class="px-1.5 py-0.2 rounded-full text-xs bg-rose-500 text-white font-bold"></span>
         </button>
 
-        <button @click="activeTab = 'reindex'" :class="activeTab === 'reindex' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-2">
+        <button @click="activeTab = 'bots'" :class="activeTab === 'bots' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5">
+          <i class="fa-solid fa-robot"></i>
+          <span>Bots & Keys</span>
+          <span x-text="bots.length" class="px-1.5 py-0.2 rounded-full text-xs bg-cyan-900 text-cyan-300 font-bold"></span>
+        </button>
+
+        <button @click="activeTab = 'reindex'" :class="activeTab === 'reindex' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5">
           <i class="fa-solid fa-arrows-rotate" :class="reindex.status === 'running' ? 'animate-spin text-cyan-400' : ''"></i>
-          <span>Channel Re-Index</span>
+          <span>Re-Index</span>
         </button>
 
-        <button @click="activeTab = 'tokens'" :class="activeTab === 'tokens' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-2">
+        <button @click="activeTab = 'tokens'" :class="activeTab === 'tokens' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5">
           <i class="fa-solid fa-key"></i>
-          <span>Stremio Tokens</span>
+          <span>Stremio</span>
         </button>
 
-        <button @click="activeTab = 'stats'" :class="activeTab === 'stats' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-2">
+        <button @click="activeTab = 'stats'" :class="activeTab === 'stats' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5">
           <i class="fa-solid fa-chart-simple"></i>
-          <span>Overview</span>
+          <span>Stats</span>
         </button>
       </nav>
     </div>
@@ -133,7 +139,93 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- TAB 2: CHANNEL RE-INDEX MANAGER -->
+    <!-- TAB 2: BOTS POOL & SETTINGS -->
+    <section x-show="activeTab === 'bots'" x-cloak>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold tracking-tight">Bot Pool & Live Configuration</h2>
+        <p class="text-slate-400 text-sm mt-1">Add or remove Telegram bot workers on-the-fly without restarting the server. Manage your TMDB, TVDB, and channel keys.</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Bot Pool Manager -->
+        <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60">
+          <h3 class="text-base font-semibold mb-3 flex items-center justify-between">
+            <span class="flex items-center gap-2"><i class="fa-solid fa-robot text-cyan-400"></i> Active Telegram Streaming Bots</span>
+            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800" x-text="bots.length + ' Active'"></span>
+          </h3>
+          <p class="text-xs text-slate-400 mb-4">Chunks are striped across all active bots in parallel for instant (<300ms) startup.</p>
+
+          <!-- Add Bot Input -->
+          <div class="flex gap-2 mb-6">
+            <input type="text" x-model="newBotToken" placeholder="Paste Bot Token (from @BotFather)..." class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-500">
+            <button @click="addBot()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold transition flex items-center gap-1.5">
+              <i class="fa-solid fa-plus"></i> Add Bot (Live)
+            </button>
+          </div>
+
+          <!-- Bot List -->
+          <div class="space-y-3">
+            <template x-for="bot in bots" :key="bot.token">
+              <div class="p-3.5 rounded-xl border border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center font-bold text-xs" x-text="'#' + (bot.index + 1)"></div>
+                  <div>
+                    <div class="text-xs font-mono text-slate-200" x-text="bot.masked"></div>
+                    <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-0.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Connected & Pre-warmed
+                    </div>
+                  </div>
+                </div>
+
+                <button @click="removeBot(bot.token)" class="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium transition flex items-center gap-1">
+                  <i class="fa-solid fa-trash-can"></i> Remove
+                </button>
+              </div>
+            </template>
+
+            <div x-show="bots.length === 0" class="p-6 text-center rounded-xl border border-dashed border-slate-800 text-slate-500 text-xs">
+              No bots currently active. Paste a bot token above to enable multi-bot streaming!
+            </div>
+          </div>
+        </div>
+
+        <!-- System Keys & Channels Settings -->
+        <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60">
+          <h3 class="text-base font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-sliders text-cyan-400"></i> API Keys & Monitored Channels
+          </h3>
+          <p class="text-xs text-slate-400 mb-4">Update metadata provider keys and Telegram channels dynamically.</p>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs text-slate-300 font-medium mb-1">TMDB API Key (TheMovieDatabase)</label>
+              <input type="text" x-model="settingsData.tmdb_api_key" placeholder="Enter TMDB API Key..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-300 font-medium mb-1">TheTVDB v4 API Key (Optional, TV & Anime)</label>
+              <input type="text" x-model="settingsData.tvdb_api_key" placeholder="Enter TheTVDB API Key..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-300 font-medium mb-1">Telegram Channels (Comma-separated Chat IDs or @handles)</label>
+              <input type="text" x-model="channelsInput" placeholder="-1001234567890, @my_channel" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-300 font-medium mb-1">Public Server Base URL</label>
+              <input type="text" x-model="settingsData.base_url" placeholder="http://my-vps-ip:8000" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <button @click="saveSettings()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-sm font-semibold transition flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20">
+              <i class="fa-solid fa-floppy-disk"></i> Save Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: CHANNEL RE-INDEX MANAGER -->
     <section x-show="activeTab === 'reindex'" x-cloak>
       <div class="mb-6">
         <h2 class="text-2xl font-bold tracking-tight">Channel Bulk Re-Index Manager</h2>
@@ -199,7 +291,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- TAB 3: STREMIO TOKENS & ADDON SETUP -->
+    <!-- TAB 4: STREMIO TOKENS & ADDON SETUP -->
     <section x-show="activeTab === 'tokens'" x-cloak>
       <div class="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -238,7 +330,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- TAB 4: SYSTEM STATS & OVERVIEW -->
+    <!-- TAB 5: SYSTEM STATS & OVERVIEW -->
     <section x-show="activeTab === 'stats'" x-cloak>
       <div class="mb-6">
         <h2 class="text-2xl font-bold tracking-tight">System Performance & Library Stats</h2>
@@ -277,6 +369,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return {
         activeTab: 'unmatched',
         unmatchedItems: [],
+        bots: [],
+        newBotToken: '',
+        settingsData: { tmdb_api_key: '', tvdb_api_key: '', channels: [], base_url: '' },
+        channelsInput: '',
         tokens: [],
         newTokenName: '',
         reindexChannels: '',
@@ -306,6 +402,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         async initDashboard() {
           await this.fetchStats();
           await this.fetchUnmatched();
+          await this.fetchBots();
+          await this.fetchSettings();
           await this.fetchTokens();
           this.pollReindexStatus();
         },
@@ -323,6 +421,82 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             if (res.ok) {
               const data = await res.json();
               this.unmatchedItems = data.items || [];
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async fetchBots() {
+          try {
+            const res = await fetch('/admin/api/bots');
+            if (res.ok) {
+              const data = await res.json();
+              this.bots = data.bots || [];
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async addBot() {
+          if (!this.newBotToken) return;
+          try {
+            const res = await fetch('/admin/api/bots', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: this.newBotToken.trim() })
+            });
+            if (res.ok) {
+              this.newBotToken = '';
+              await this.fetchBots();
+              this.showToast('Bot connected & added to live streaming pool!');
+            } else {
+              this.showToast('Failed to connect bot. Check token.');
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async removeBot(token) {
+          if (!confirm('Remove this bot from the streaming pool?')) return;
+          try {
+            const res = await fetch('/admin/api/bots/remove', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: token })
+            });
+            if (res.ok) {
+              await this.fetchBots();
+              this.showToast('Bot stopped and removed!');
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async fetchSettings() {
+          try {
+            const res = await fetch('/admin/api/settings');
+            if (res.ok) {
+              const data = await res.json();
+              this.settingsData = data;
+              this.channelsInput = (data.channels || []).join(', ');
+            }
+          } catch (e) { console.error(e); }
+        },
+
+        async saveSettings() {
+          const channels = this.channelsInput
+            ? this.channelsInput.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+          try {
+            const res = await fetch('/admin/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tmdb_api_key: this.settingsData.tmdb_api_key,
+                tvdb_api_key: this.settingsData.tvdb_api_key,
+                channels: channels,
+                base_url: this.settingsData.base_url
+              })
+            });
+            if (res.ok) {
+              await this.fetchSettings();
+              this.showToast('Settings saved successfully!');
             }
           } catch (e) { console.error(e); }
         },

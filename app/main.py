@@ -31,9 +31,26 @@ async def lifespan(app: FastAPI):
     app.state.db = db
     app.state.storage = db
 
+    # Load persistent settings from DB or seed from .env
+    saved_settings = await db.get_settings()
+    if not saved_settings:
+        saved_settings = {
+            "bot_tokens": settings.telegram_bot_tokens,
+            "tmdb_api_key": settings.tmdb_api_key,
+            "tvdb_api_key": settings.tvdb_api_key,
+            "channels": settings.telegram_channels,
+            "base_url": settings.base_url,
+        }
+        await db.save_settings(saved_settings)
+
+    active_tmdb_key = saved_settings.get("tmdb_api_key") or settings.tmdb_api_key
+    active_tvdb_key = saved_settings.get("tvdb_api_key") or settings.tvdb_api_key
+    active_bot_tokens = saved_settings.get("bot_tokens") or settings.telegram_bot_tokens
+    active_channels = saved_settings.get("channels") or settings.telegram_channels
+
     # 2. Initialize TMDB/TVDB Resolver & Ingestion Pipeline
     logger.info("Initializing Metadata Resolver & Ingestion Pipeline...")
-    resolver = MetadataResolver(tmdb_api_key=settings.tmdb_api_key, tvdb_api_key=settings.tvdb_api_key)
+    resolver = MetadataResolver(tmdb_api_key=active_tmdb_key, tvdb_api_key=active_tvdb_key)
     pipeline = IngestionPipeline(storage=db, resolver=resolver)
     app.state.resolver = resolver
     app.state.pipeline = pipeline
@@ -44,14 +61,15 @@ async def lifespan(app: FastAPI):
     app.state.catalog_manager = catalog_mgr
 
     # 4. Initialize Multi-Bot Pool & DC Pre-warming
-    bot_pool = None
-    if settings.telegram_bot_tokens and settings.telegram_api_id and settings.telegram_api_hash:
-        logger.info(f"Starting BotPoolManager with {len(settings.telegram_bot_tokens)} bot tokens...")
-        bot_pool = BotPoolManager(
-            api_id=settings.telegram_api_id,
-            api_hash=settings.telegram_api_hash,
-            bot_tokens=settings.telegram_bot_tokens,
-        )
+    bot_pool = BotPoolManager(
+        api_id=settings.telegram_api_id,
+        api_hash=settings.telegram_api_hash,
+        bot_tokens=active_bot_tokens,
+    )
+    app.state.bot_pool = bot_pool
+
+    if active_bot_tokens and settings.telegram_api_id and settings.telegram_api_hash:
+        logger.info(f"Starting BotPoolManager with {len(active_bot_tokens)} bot tokens...")
         try:
             await bot_pool.start_all(prewarm=True)
             workers = bot_pool.get_workers()
@@ -61,7 +79,7 @@ async def lifespan(app: FastAPI):
 
                 # 5. Initialize Channel Crawler & Real-time Live Listener
                 crawler = ChannelCrawler(client=bot_pool.clients[0], pipeline=pipeline)
-                crawler.setup_listener(chat_ids=settings.telegram_channels or None)
+                crawler.setup_listener(chat_ids=active_channels or None)
                 reindexer = ReindexManager(crawler=crawler)
                 app.state.crawler = crawler
                 app.state.reindexer = reindexer
@@ -69,7 +87,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error starting Telegram bot clients: {e}")
     else:
-        logger.warning("Telegram credentials or bot tokens missing - streaming will run in mock/standby mode")
+        logger.warning("No bot tokens active yet - add bots directly in the Dashboard at /admin!")
 
     yield
 

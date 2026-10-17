@@ -35,6 +35,138 @@ class TokenCreateRequest(BaseModel):
     name: Optional[str] = "User"
 
 
+class SettingsUpdateRequest(BaseModel):
+    tmdb_api_key: Optional[str] = None
+    tvdb_api_key: Optional[str] = None
+    channels: Optional[List[int | str]] = None
+    base_url: Optional[str] = None
+
+
+class BotTokenRequest(BaseModel):
+    token: str
+
+
+@dashboard_router.get("/api/settings")
+async def get_settings_endpoint(request: Request):
+    storage = getattr(request.app.state, "storage", None)
+    bot_pool = getattr(request.app.state, "bot_pool", None)
+
+    saved = await storage.get_settings() if storage and hasattr(storage, "get_settings") else {}
+    if not saved:
+        saved = {
+            "tmdb_api_key": settings.tmdb_api_key,
+            "tvdb_api_key": settings.tvdb_api_key,
+            "channels": settings.telegram_channels,
+            "base_url": settings.base_url,
+            "bot_tokens": settings.bot_tokens,
+        }
+
+    # If active bot_pool exists, reflect live tokens
+    if bot_pool and hasattr(bot_pool, "get_tokens"):
+        tokens = bot_pool.get_tokens()
+        if hasattr(tokens, "__await__"):
+            tokens = await tokens
+        saved["bot_tokens"] = tokens
+
+    return saved
+
+
+@dashboard_router.post("/api/settings")
+async def update_settings_endpoint(payload: SettingsUpdateRequest, request: Request):
+    storage = getattr(request.app.state, "storage", None)
+    resolver = getattr(request.app.state, "resolver", None)
+
+    current = await storage.get_settings() if storage and hasattr(storage, "get_settings") else {}
+    if not current:
+        current = {}
+
+    if payload.tmdb_api_key is not None:
+        current["tmdb_api_key"] = payload.tmdb_api_key
+        if resolver:
+            resolver.api_key = payload.tmdb_api_key
+
+    if payload.tvdb_api_key is not None:
+        current["tvdb_api_key"] = payload.tvdb_api_key
+        if resolver:
+            resolver.tvdb_api_key = payload.tvdb_api_key
+
+    if payload.channels is not None:
+        current["channels"] = payload.channels
+
+    if payload.base_url is not None:
+        current["base_url"] = payload.base_url
+
+    if storage and hasattr(storage, "save_settings"):
+        await storage.save_settings(current)
+
+    return {"status": "saved", "settings": current}
+
+
+@dashboard_router.get("/api/bots")
+async def list_bots_endpoint(request: Request):
+    bot_pool = getattr(request.app.state, "bot_pool", None)
+    tokens = bot_pool.get_tokens() if bot_pool and hasattr(bot_pool, "get_tokens") else []
+    bots = []
+    for idx, tok in enumerate(tokens):
+        masked = f"{tok[:6]}...{tok[-4:]}" if len(tok) > 10 else "••••••••"
+        bots.append({
+            "index": idx,
+            "token": tok,
+            "masked": masked,
+            "status": "connected",
+        })
+    return {"bots": bots, "count": len(bots)}
+
+
+@dashboard_router.post("/api/bots")
+async def add_bot_endpoint(payload: BotTokenRequest, request: Request):
+    bot_pool = getattr(request.app.state, "bot_pool", None)
+    mux = getattr(request.app.state, "multiplexer", None)
+    storage = getattr(request.app.state, "storage", None)
+
+    if not bot_pool:
+        raise HTTPException(status_code=500, detail="Bot pool not initialized")
+
+    worker = await bot_pool.add_bot(payload.token.strip())
+    if mux and hasattr(mux, "update_bots") and hasattr(bot_pool, "get_workers"):
+        mux.update_bots(bot_pool.get_workers())
+
+    if storage and hasattr(storage, "get_settings") and hasattr(storage, "save_settings"):
+        current = await storage.get_settings() or {}
+        existing_tokens = current.get("bot_tokens", [])
+        if payload.token.strip() not in existing_tokens:
+            existing_tokens.append(payload.token.strip())
+            current["bot_tokens"] = existing_tokens
+            await storage.save_settings(current)
+
+    return {"status": "added", "token": payload.token.strip()}
+
+
+@dashboard_router.post("/api/bots/remove")
+@dashboard_router.delete("/api/bots")
+async def remove_bot_endpoint(payload: BotTokenRequest, request: Request):
+    bot_pool = getattr(request.app.state, "bot_pool", None)
+    mux = getattr(request.app.state, "multiplexer", None)
+    storage = getattr(request.app.state, "storage", None)
+
+    if not bot_pool:
+        raise HTTPException(status_code=500, detail="Bot pool not initialized")
+
+    removed = await bot_pool.remove_bot(payload.token.strip())
+    if mux and hasattr(mux, "update_bots") and hasattr(bot_pool, "get_workers"):
+        mux.update_bots(bot_pool.get_workers())
+
+    if storage and hasattr(storage, "get_settings") and hasattr(storage, "save_settings"):
+        current = await storage.get_settings() or {}
+        existing_tokens = current.get("bot_tokens", [])
+        if payload.token.strip() in existing_tokens:
+            existing_tokens.remove(payload.token.strip())
+            current["bot_tokens"] = existing_tokens
+            await storage.save_settings(current)
+
+    return {"status": "removed", "success": removed}
+
+
 @dashboard_router.get("/api/unmatched")
 async def list_unmatched_items(request: Request):
     storage = getattr(request.app.state, "storage", None)

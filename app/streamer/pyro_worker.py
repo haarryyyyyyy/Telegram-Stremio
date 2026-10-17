@@ -128,44 +128,87 @@ class BotPoolManager:
         self.api_id = api_id
         self.api_hash = api_hash
         self.bot_tokens = [tok.strip() for tok in bot_tokens if tok.strip()]
-        self.clients: List[Client] = []
-        self.workers: List[PyroforkBotWorker] = []
+        self.bot_clients: Dict[str, Client] = {}
+        self.bot_workers: Dict[str, PyroforkBotWorker] = {}
+
+    @property
+    def clients(self) -> List[Client]:
+        return list(self.bot_clients.values())
+
+    @property
+    def workers(self) -> List[PyroforkBotWorker]:
+        return list(self.bot_workers.values())
+
+    async def add_bot(self, token: str, prewarm: bool = True) -> Optional[PyroforkBotWorker]:
+        """Dynamically start and register a new bot client at runtime."""
+        token = token.strip()
+        if not token:
+            return None
+        if token in self.bot_clients:
+            return self.bot_workers.get(token)
+
+        bot_idx = len(self.bot_clients)
+        client = Client(
+            name=f"stream_bot_{token[:8]}_{bot_idx}",
+            api_id=self.api_id,
+            api_hash=self.api_hash,
+            bot_token=token,
+            in_memory=True,
+            no_updates=True,
+            workers=6,
+            max_concurrent_transmissions=10,
+        )
+        try:
+            await client.start()
+            worker = PyroforkBotWorker(client=client, bot_id=bot_idx)
+            self.bot_clients[token] = client
+            self.bot_workers[token] = worker
+
+            if prewarm:
+                await worker.prewarm_dcs()
+            logger.info(f"Dynamically started bot client {bot_idx} ({token[:8]}...)")
+            return worker
+        except Exception as e:
+            logger.error(f"Failed to dynamically start bot {token[:8]}: {e}")
+            raise
+
+    async def remove_bot(self, token: str) -> bool:
+        """Dynamically stop and deregister a bot client at runtime."""
+        token = token.strip()
+        client = self.bot_clients.pop(token, None)
+        self.bot_workers.pop(token, None)
+
+        if client:
+            try:
+                await client.stop()
+                logger.info(f"Dynamically stopped bot ({token[:8]}...)")
+                return True
+            except Exception as e:
+                logger.warning(f"Error stopping bot client: {e}")
+                return True
+        return False
 
     async def start_all(self, prewarm: bool = True):
-        """Start all bot clients and optionally pre-warm common DC media sessions."""
-        if not self.bot_tokens:
-            logger.warning("No bot tokens provided for BotPoolManager")
-            return
-
-        for idx, token in enumerate(self.bot_tokens):
-            client = Client(
-                name=f"stream_bot_{idx}",
-                api_id=self.api_id,
-                api_hash=self.api_hash,
-                bot_token=token,
-                in_memory=True,
-                no_updates=True,
-                workers=6,
-                max_concurrent_transmissions=10,
-            )
-            await client.start()
-            self.clients.append(client)
-            worker = PyroforkBotWorker(client=client, bot_id=idx)
-            self.workers.append(worker)
-
-        if prewarm:
-            prewarm_tasks = [w.prewarm_dcs() for w in self.workers]
-            await asyncio.gather(*prewarm_tasks, return_exceptions=True)
+        """Start all configured bot clients and pre-warm DC connections."""
+        for token in self.bot_tokens:
+            try:
+                await self.add_bot(token, prewarm=prewarm)
+            except Exception as e:
+                logger.warning(f"Skipping initial bot ({token[:8]}...): {e}")
 
     def get_workers(self) -> List[BotWorker]:
-        return list(self.workers)
+        return list(self.bot_workers.values())
+
+    def get_tokens(self) -> List[str]:
+        return list(self.bot_clients.keys())
 
     async def stop_all(self):
         """Gracefully stop all client connections."""
-        for client in self.clients:
+        for client in list(self.bot_clients.values()):
             try:
                 await client.stop()
             except Exception as e:
                 logger.warning(f"Error stopping client: {e}")
-        self.clients.clear()
-        self.workers.clear()
+        self.bot_clients.clear()
+        self.bot_workers.clear()
+

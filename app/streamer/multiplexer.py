@@ -14,8 +14,13 @@ class StreamMultiplexer:
     def __init__(self, bots: List[BotWorker], prefetch_window: int = 8):
         if not bots:
             raise ValueError("StreamMultiplexer requires at least one BotWorker")
-        self.bots = bots
+        self.bots = list(bots)
         self.prefetch_window = prefetch_window
+
+    def update_bots(self, bots: List[BotWorker]):
+        """Dynamically update active bot pool without interrupting running stream logic."""
+        if bots:
+            self.bots = list(bots)
 
     async def stream_range(
         self,
