@@ -130,6 +130,13 @@ def score_candidate(
     if score < 0.5:
         return score
 
+    #----- A long query that shares under half its words with the result only matches on a shared franchise
+    #----- word ("Avengers Endgame Encore" vs "Avengers Secret Wars"): never accept that as the same title.
+    q_tokens = normalize_title(query_title).split()
+    r_tokens = set(normalize_title(result_title).split())
+    if len(q_tokens) >= 3 and sum(t in r_tokens for t in q_tokens) / len(q_tokens) < 0.5:
+        return min(score, 0.5)
+
     if query_year and result_year:
         if year_lower_bound:
             if int(query_year) >= result_year and score >= 0.80:
@@ -138,7 +145,10 @@ def score_candidate(
         diff = abs(int(query_year) - result_year)
         if year_reliable:
             if diff > 2:
-                score = max(0.0, score - 0.10 * (diff - 2))
+                penalty = 0.10 * (diff - 2)
+                if score >= 0.80:
+                    penalty = min(penalty, 0.05)   # re-releases and remakes: a strong title match survives a year gap
+                score = max(0.0, score - penalty)
             elif score >= 0.80:
                 if diff == 0:
                     score = min(1.0, score + 0.20)
