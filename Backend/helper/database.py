@@ -193,6 +193,14 @@ class Database:
         doc = await self.dbs["tracking"]["state"].find_one({"_id": "catalog_order"})
         return list((doc or {}).get("order", []))
 
+    async def get_hidden_catalogs(self) -> List[str]:
+        doc = await self.dbs["tracking"]["state"].find_one({"_id": "catalog_hidden"})
+        return list((doc or {}).get("keys", []))
+
+    async def save_hidden_catalogs(self, keys: List[str]) -> None:
+        await self.dbs["tracking"]["state"].update_one(
+            {"_id": "catalog_hidden"}, {"$set": {"keys": [str(x) for x in keys]}}, upsert=True)
+
     async def save_catalog_order(self, order: List[str]) -> bool:
         await self.dbs["tracking"]["state"].update_one(
             {"_id": "catalog_order"},
@@ -341,13 +349,22 @@ class Database:
         return str(result.inserted_id)
 
     #----- slim=True keeps only distinct (media_type, visibility, allowed_tokens) per item
-    async def get_custom_catalogs(self, visible_only: bool = False, slim: bool = False) -> List[dict]:
+    async def get_custom_catalogs(self, visible_only: bool = False, slim: bool = False, item_fields: Optional[tuple] = None) -> List[dict]:
         pipeline = [{"$match": {"visible": True} if visible_only else {}}, {"$sort": {"updated_at": DESCENDING}}]
         if slim:
             pipeline.append({"$addFields": {"items": {"$setUnion": [{"$map": {
                 "input": {"$ifNull": ["$items", []]},
                 "in": {"media_type": "$$this.media_type", "visibility": "$$this.visibility", "allowed_tokens": "$$this.allowed_tokens"},
             }}]}}})
+        if item_fields is not None:
+            pipeline.append({"$addFields": {"item_count": {"$size": {"$ifNull": ["$items", []]}}}})
+            if item_fields:
+                pipeline.append({"$addFields": {"items": {"$map": {
+                    "input": {"$ifNull": ["$items", []]},
+                    "in": {f: f"$$this.{f}" for f in item_fields},
+                }}}})
+            else:
+                pipeline.append({"$project": {"items": 0}})
         catalogs = await self.dbs["tracking"]["custom_catalogs"].aggregate(pipeline).to_list(None)
         return [self._normalize_catalog(convert_objectid_to_str(catalog)) for catalog in catalogs]
 
@@ -769,6 +786,7 @@ class Database:
         raw_items = catalog.get("items", []) or []
         if db_media_type:
             raw_items = [item for item in raw_items if item.get("media_type") == db_media_type]
+        raw_items = sorted(raw_items, key=lambda i: str(i.get("release_date") or ""), reverse=True)
 
         total_count = len(raw_items)
         skip = (page - 1) * page_size
@@ -2281,7 +2299,7 @@ class Database:
             #----- Direct update in the telegram array for movies
             result = await self.dbs[db_key]["movie"].update_one(
                 {"tmdb_id": tmdb_id, "telegram.id": quality_id},
-                {"$set": {"telegram.$.is_dead": True, "updated_on": datetime.utcnow()}}
+                {"$set": {"telegram.$.is_dead": True}}
             )
             return result.modified_count > 0
             
@@ -2304,7 +2322,6 @@ class Database:
                 if found: break
                 
             if found:
-                tv["updated_on"] = datetime.utcnow()
                 result = await self.dbs[db_key]["tv"].replace_one({"tmdb_id": tmdb_id}, tv)
                 return result.modified_count > 0
                 

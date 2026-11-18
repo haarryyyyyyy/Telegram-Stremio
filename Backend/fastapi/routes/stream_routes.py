@@ -136,6 +136,11 @@ def _get_streamer(tg_client, index: int) -> ByteStreamer:
     return _streamer_by_client[tg_client]
 
 
+def warm_streamers() -> None:
+    for index, client in list(multi_clients.items()):
+        _get_streamer(client, index)
+
+
 def _prefetch_for(index: int) -> tuple[int, int]:
     return get_parallel_prefetch(len(multi_clients) - 1)
 
