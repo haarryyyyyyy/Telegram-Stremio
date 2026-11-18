@@ -15,6 +15,7 @@ from pyrogram.file_id import FileId
 from pyrogram.session import Auth, Session
 
 from Backend import db
+from Backend.helper import client_health
 from Backend.helper.exceptions import FileNotFound
 from Backend.helper.pyro import get_file_ids
 from Backend.logger import LOGGER
@@ -204,7 +205,9 @@ class ByteStreamer:
             return _refresh
 
         primary_refresh = await _make_refresh_fn(location_box, self, file_id)
-        session_pool = [(client_index, media_session, location_box, primary_refresh)]
+        #----- Mutable slots: [client index, session, location box, refresh fn, streamer, file id]. The session is
+        #----- swapped for a fresh one when its socket dies, instead of every remaining chunk hammering it.
+        session_pool = [[client_index, media_session, location_box, primary_refresh, self, file_id]]
 
         if extra_clients:
             for ec_idx, ec_streamer, ec_file_id in extra_clients:
@@ -212,7 +215,7 @@ class ByteStreamer:
                     ec_session = await ec_streamer._get_media_session(ec_file_id)
                     ec_loc_box = [await ByteStreamer._get_location(ec_file_id)]
                     ec_refresh = await _make_refresh_fn(ec_loc_box, ec_streamer, ec_file_id)
-                    session_pool.append((ec_idx, ec_session, ec_loc_box, ec_refresh))
+                    session_pool.append([ec_idx, ec_session, ec_loc_box, ec_refresh, ec_streamer, ec_file_id])
                 except Exception as e:
                     LOGGER.warning("Skipping extra client %s (session setup failed): %s", ec_idx, e)
 
@@ -220,8 +223,11 @@ class ByteStreamer:
             tries = 0
             flood_tries = 0
             while tries < 3 and flood_tries < 5 and not stop_event.is_set():
-                c_idx, c_session, c_loc_box, c_refresh = session_pool[(seq_idx + tries) % len(session_pool)]
+                slot = session_pool[(seq_idx + tries) % len(session_pool)]
+                c_idx, c_session, c_loc_box, c_refresh, c_streamer, c_file_id = slot
                 try:
+                    if client_health.session_is_dead(c_session):
+                        c_session = slot[1] = await client_health.fresh_media_session(c_streamer, c_file_id, c_session)
                     r = await asyncio.wait_for(
                         c_session.send(
                             raw.functions.upload.GetFile(
@@ -244,6 +250,12 @@ class ByteStreamer:
 
                 except Exception as e:
                     err_str = str(e)
+
+                    if isinstance(e, OSError):   # connection died mid-request: next attempt must not reuse it
+                        try:
+                            slot[1] = await client_health.fresh_media_session(c_streamer, c_file_id, c_session)
+                        except Exception as exc:
+                            LOGGER.warning("Could not reopen media session for client %s: %s", c_idx, exc)
 
                     if "FILE_REFERENCE" in err_str or "file_reference" in err_str.lower():
                         await c_refresh()

@@ -88,3 +88,65 @@ async def test_pick_working_client_gives_up_after_all_fail(monkeypatch):
 
     with pytest.raises(OSError):
         await stream_routes._db_client(fetch)
+
+
+import logging
+import types
+
+
+def _session(closing):
+    writer = types.SimpleNamespace(is_closing=lambda: closing)
+    return types.SimpleNamespace(connection=types.SimpleNamespace(protocol=types.SimpleNamespace(writer=writer)),
+                                 stop=_async_noop)
+
+
+async def _async_noop(*_a, **_k):
+    return None
+
+
+def test_a_closing_socket_counts_as_dead_and_unknown_objects_do_not():
+    assert client_health.session_is_dead(_session(True)) is True
+    assert client_health.session_is_dead(_session(False)) is False
+    assert client_health.session_is_dead(FakeSession()) is False        # no connection info: assume alive
+
+
+async def test_dead_media_session_is_replaced_by_a_fresh_one():
+    dead, fresh = _session(True), _session(False)
+    created = []
+
+    class Streamer:
+        client = types.SimpleNamespace(media_sessions={4: dead})
+
+        async def _get_media_session(self, file_id):
+            created.append(file_id.dc_id)
+            self.client.media_sessions[file_id.dc_id] = fresh
+            return fresh
+
+    got = await client_health.fresh_media_session(Streamer(), types.SimpleNamespace(dc_id=4), dead)
+    assert got is fresh and created == [4] and Streamer.client.media_sessions[4] is fresh
+
+
+async def test_a_session_already_replaced_by_another_stream_is_reused_not_dropped():
+    old, newer = _session(True), _session(False)
+
+    class Streamer:
+        client = types.SimpleNamespace(media_sessions={4: newer})
+
+        async def _get_media_session(self, file_id):
+            return self.client.media_sessions[file_id.dc_id]
+
+    got = await client_health.fresh_media_session(Streamer(), types.SimpleNamespace(dc_id=4), old)
+    assert got is newer and Streamer.client.media_sessions[4] is newer
+
+
+def test_asyncio_closed_socket_warning_is_rate_limited(monkeypatch):
+    from Backend.logger import ThrottleClosedSocketWarning
+    f = ThrottleClosedSocketWarning(every=60)
+    clock = [1000.0]
+    monkeypatch.setattr("Backend.logger.time.monotonic", lambda: clock[0])
+    rec = lambda msg: logging.LogRecord("asyncio", logging.WARNING, "x", 1, msg, None, None)
+    assert f.filter(rec("socket.send() raised exception.")) is True
+    assert all(f.filter(rec("socket.send() raised exception.")) is False for _ in range(300))
+    assert f.filter(rec("something else")) is True                       # other warnings are untouched
+    clock[0] += 61
+    assert f.filter(rec("socket.send() raised exception.")) is True
