@@ -15,11 +15,13 @@ import httpx
 
 from Backend import __version__, db
 from Backend.helper.database import META_PROJECTION
+from Backend.helper.auto_catalog import catalog_sort_key
+from Backend.helper.bounded import BoundedDict
 from Backend.config import Telegram
 from Backend.helper.analytics import client_ip_from, record_client
 from Backend.fastapi.security.tokens import verify_token
 from Backend.helper.cf_stream import cf_enabled, cf_stream_url
-from Backend.fastapi.themes import DEFAULT_THEME, DEFAULT_STYLE, get_theme
+from Backend.fastapi.themes import get_theme, theme_key
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
 from Backend.helper.metadata import resolve_cover_url, tmdb_api_key, get_tmdb_client, format_tmdb_image
@@ -91,20 +93,30 @@ async def _external_meta_for_id(id: str, parsed: dict, media_type: str) -> Optio
             videos = []
             if not is_movie:
                 seasons = getattr(item, "seasons", None) or []
-                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+                last = getattr(item, "last_episode_to_air", None)
+                last_aired = (
+                    (getattr(last, "season_number", 0) or 0, getattr(last, "episode_number", 0) or 0)
+                    if last else None
+                )
                 for s in seasons:
                     s_num = getattr(s, "season_number", 0)
                     if s_num == 0:
                         continue
+                    air = getattr(s, "air_date", None)
+                    released = f"{str(air)[:10]}T00:00:00.000Z" if air else None
                     ep_count = getattr(s, "episode_count", 0) or 0
                     for ep in range(1, ep_count + 1):
-                        videos.append({
+                        if last_aired and (s_num, ep) > last_aired:
+                            break
+                        video = {
                             "id": f"{meta_id}:{s_num}:{ep}",
                             "title": f"Episode {ep}",
                             "season": s_num,
                             "episode": ep,
-                            "released": yesterday,
-                        })
+                        }
+                        if released:
+                            video["released"] = released
+                        videos.append(video)
 
             return {
                 "id": meta_id,
@@ -152,6 +164,21 @@ async def _external_meta_for_id(id: str, parsed: dict, media_type: str) -> Optio
     except Exception as exc:
         LOGGER.warning(f"[EXTERNAL META] Failed to resolve fallback meta for {id}: {exc}")
     return None
+
+_EXTERNAL_META_CACHE = BoundedDict(500)
+_EXTERNAL_META_TTL = 6 * 3600
+
+
+async def _cached_external_meta(id: str, parsed: dict, media_type: str) -> Optional[dict]:
+    key = (id, media_type)
+    hit = _EXTERNAL_META_CACHE.get(key)
+    if hit and time.time() - hit[0] < _EXTERNAL_META_TTL:
+        return hit[1]
+    meta = await _external_meta_for_id(id, parsed, media_type)
+    if meta:
+        _EXTERNAL_META_CACHE[key] = (time.time(), meta)
+    return meta
+
 
 def build_proxy_url(original_url: str) -> str | None:
     settings = SettingsManager.current()
@@ -628,7 +655,7 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
             {
                 "type": "movie",
                 "id": "latest_movies",
-                "name": "Latest",
+                "name": "Recently Added",
                 "extra": [
                     {"name": "genre", "isRequired": False, "options": GENRES},
                     {"name": "skip"}
@@ -649,7 +676,7 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
             {
                 "type": "series",
                 "id": "latest_series",
-                "name": "Latest",
+                "name": "Recently Added",
                 "extra": [
                     {"name": "genre", "isRequired": False, "options": GENRES},
                     {"name": "skip"}
@@ -734,6 +761,7 @@ async def get_manifest(token: str, token_data: dict = Depends(verify_token)):
 
                 catalogs.sort(key=_crank)
             hidden = set((token_data.get("config") or {}).get("hidden_catalogs") or [])
+            hidden |= set(await db.get_hidden_catalogs())
             if hidden:
                 catalogs = [
                     c for c in catalogs
@@ -860,14 +888,16 @@ async def build_nuvio_collection_data(token: str, collection_type: str = "full",
     zee5_series = get_cat_id("zee", "auto_zee5", "series", strict=True)
     crunchyroll_movie = get_cat_id("crunchyroll", "auto_crunchyroll", "movie", strict=True)
     crunchyroll_series = get_cat_id("crunchyroll", "auto_crunchyroll", "series", strict=True)
-    bollywood_movie = get_cat_id("bollywood", "auto_bollywood", "movie", fallback="latest_movies", strict=False)
-    bollywood_series = get_cat_id("bollywood", "auto_bollywood", "series", fallback="latest_series", strict=False)
+    bollywood_movie = get_cat_id("bollywood", "auto_bollywood", "movie", strict=True)
+    bollywood_series = get_cat_id("bollywood", "auto_bollywood", "series", strict=True)
     south_indian_movie = get_cat_id("south indian", "auto_south_indian", "movie", strict=True)
     south_indian_series = get_cat_id("south indian", "auto_south_indian", "series", strict=True)
     kdrama_movie = get_cat_id("korean", "auto_korean", "movie", strict=True)
     kdrama_series = get_cat_id("k-drama", "auto_kdrama", "series", strict=True) or get_cat_id("korean", "auto_korean", "series", strict=True)
     anime_movie = get_cat_id("anime", "auto_anime", "movie", strict=True)
     anime_series = get_cat_id("anime", "auto_anime", "series", strict=True)
+    latest_releases_movie = get_cat_id("latest releases", "auto_latest_releases", "movie", strict=True)
+    latest_releases_series = get_cat_id("latest releases", "auto_latest_releases", "series", strict=True)
 
     # =========================================================================
     # 01 ✦ DISCOVER COLLECTION (TMDB Global Trends + Local Addon Fallback)
@@ -904,6 +934,25 @@ async def build_nuvio_collection_data(token: str, collection_type: str = "full",
                 "focusGifEnabled": False
             },
             {
+                "id": "folder-discover-latest-releases",
+                "title": "Latest Releases",
+                "sources": [
+                    {"type": "movie", "addonId": addon_id, "provider": "addon", "catalogId": latest_releases_movie},
+                    {"type": "series", "addonId": addon_id, "provider": "addon", "catalogId": latest_releases_series}
+                ],
+                "hideTitle": False,
+                "tileShape": "landscape",
+                "focusGifUrl": "",
+                "titleLogoUrl": f"{K_IMG}/Discover/Premieres/logo.webp",
+                "coverImageUrl": f"{K_IMG}/Discover/Premieres/cover.webp",
+                "heroBackdropUrl": f"{K_IMG}/Discover/Premieres/backdrop.webp",
+                "catalogSources": [
+                    {"type": "movie", "addonId": addon_id, "catalogId": latest_releases_movie},
+                    {"type": "series", "addonId": addon_id, "catalogId": latest_releases_series}
+                ],
+                "focusGifEnabled": False
+            },
+            {
                 "id": "folder-discover-popular",
                 "title": "Popular Hits",
                 "sources": [
@@ -926,7 +975,7 @@ async def build_nuvio_collection_data(token: str, collection_type: str = "full",
             },
             {
                 "id": "folder-discover-latest",
-                "title": "Latest Releases",
+                "title": "Recently Added",
                 "sources": [
                     {"type": "movie", "addonId": addon_id, "provider": "addon", "catalogId": "latest_movies"},
                     {"type": "series", "addonId": addon_id, "provider": "addon", "catalogId": "latest_series"},
@@ -958,31 +1007,13 @@ async def build_nuvio_collection_data(token: str, collection_type: str = "full",
                 "hideTitle": False,
                 "tileShape": "landscape",
                 "focusGifUrl": "",
-                "titleLogoUrl": f"{K_IMG}/Discover/Premieres/logo.webp",
-                "coverImageUrl": f"{K_IMG}/Discover/Premieres/cover.webp",
-                "heroBackdropUrl": f"{K_IMG}/Discover/Premieres/backdrop.webp",
+                "titleLogoUrl": f"{NUVIO_CDN}/RecentlyAdded_logo.webp",
+                "coverImageUrl": f"{NUVIO_CDN}/RecentlyAdded_cover.webp",
+                "heroBackdropUrl": f"{NUVIO_CDN}/RecentlyAdded_backdrop.webp",
                 "catalogSources": [
                     {"type": "movie", "addonId": addon_id, "catalogId": "latest_movies"},
                     {"type": "series", "addonId": addon_id, "catalogId": "latest_series"}
                 ],
-                "focusGifEnabled": False
-            },
-            {
-                "id": "folder-discover-toprated",
-                "title": "Top Rated All-Time",
-                "sources": [
-                    {"title": "IMDb: Top Rated Movies", "sortBy": "rank", "sortHow": "asc", "provider": "trakt", "mediaType": "MOVIE", "traktListId": 2142753},
-                    {"title": "IMDb: Top Rated TV Shows", "sortBy": "rank", "sortHow": "asc", "provider": "trakt", "mediaType": "TV", "traktListId": 2143363},
-                    {"type": "movie", "addonId": addon_id, "provider": "addon", "catalogId": "top_movies"},
-                    {"type": "series", "addonId": addon_id, "provider": "addon", "catalogId": "top_series"}
-                ],
-                "hideTitle": False,
-                "tileShape": "landscape",
-                "focusGifUrl": "",
-                "titleLogoUrl": f"{K_IMG}/Discover/Top%20Rated/logo.webp",
-                "coverImageUrl": f"{K_IMG}/Discover/Top%20Rated/cover.webp",
-                "heroBackdropUrl": f"{K_IMG}/Discover/Top%20Rated/backdrop.webp",
-                "catalogSources": [],
                 "focusGifEnabled": False
             }
         ],
@@ -1496,33 +1527,34 @@ async def build_nuvio_collection_data(token: str, collection_type: str = "full",
     }
 
     # Sanitize all collections to guarantee Nuvio never encounters a null catalogId:
-    def _sanitize_collection(coll: dict, auto_hide_empty: bool = False) -> dict:
+    def _sanitize_collection(coll: dict) -> dict:
         cleaned_folders = []
         for f in coll.get("folders") or []:
             sources = [
                 s for s in (f.get("sources") or [])
-                if s.get("provider") != "addon" or s.get("catalogId")
+                if s.get("provider") == "addon" and s.get("catalogId")
             ]
-            catalog_sources = [
-                cs for cs in (f.get("catalogSources") or [])
-                if cs.get("catalogId")
-            ]
-            if auto_hide_empty and not sources:
+            if not sources:
                 continue
             folder_copy = dict(f)
             folder_copy["sources"] = sources
-            folder_copy["catalogSources"] = catalog_sources
+            folder_copy["catalogSources"] = [
+                cs for cs in (f.get("catalogSources") or [])
+                if cs.get("catalogId")
+            ]
             cleaned_folders.append(folder_copy)
         coll_copy = dict(coll)
         coll_copy["folders"] = cleaned_folders
         return coll_copy
 
-    discover_collection = _sanitize_collection(discover_collection)
-    ott_collection = _sanitize_collection(ott_collection, auto_hide_empty=True)
-    franchises_collection = _sanitize_collection(franchises_collection)
-    spotlight_collection = _sanitize_collection(spotlight_collection)
-
-    return [discover_collection, ott_collection, franchises_collection, spotlight_collection]
+    by_type = {
+        "discover": [discover_collection],
+        "ott": [ott_collection],
+        "franchises": [franchises_collection],
+        "spotlight": [spotlight_collection],
+    }
+    collections = by_type.get(collection_type, [discover_collection, ott_collection, franchises_collection, spotlight_collection])
+    return [c for c in map(_sanitize_collection, collections) if c["folders"]]
 
 
 #----- Dynamic Nuvio Collection JSON for this token
@@ -1541,6 +1573,7 @@ async def get_nuvio_ott_collection(token: str, token_data: dict = Depends(verify
     return await build_nuvio_collection_data(token, "ott", token_data)
 
 
+@router.get("/{token}/nuvio-explore-collection.json")
 @router.get("/{token}/nuvio-franchises-collection.json")
 async def get_nuvio_franchises_collection(token: str, token_data: dict = Depends(verify_token)):
     return await build_nuvio_collection_data(token, "franchises", token_data)
@@ -1560,6 +1593,9 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
 
     if media_type not in ["movie", "series"]:
         raise HTTPException(status_code=404, detail="Invalid catalog type")
+
+    if {id, f"{id}::{media_type}"} & set(await db.get_hidden_catalogs()):
+        return {"metas": []}
 
     genre_filter = None
     search_query = None
@@ -1593,7 +1629,7 @@ async def get_catalog(token: str, media_type: str, id: str, extra: Optional[str]
                 if it.get("media_type") == db_media_type
                 and _token_can_view(*_effective_visibility(catalog, it), token_data)
             ]
-            visible_items.sort(key=lambda it: it.get("updated_on") or it.get("added_at") or datetime.min, reverse=True)
+            visible_items.sort(key=catalog_sort_key, reverse=True)
             if search_query:
                 ids = [int(it["tmdb_id"]) for it in visible_items if it.get("tmdb_id") is not None]
                 found = await db.search_documents(
@@ -1691,7 +1727,7 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
         projection={"telegram": 0, "seasons.episodes.telegram": 0}
     )
     if not media:
-        fallback_meta = await _external_meta_for_id(id, parsed, media_type)
+        fallback_meta = await _cached_external_meta(id, parsed, media_type)
         return {"meta": fallback_meta or {}}
 
     if not _token_can_view(media.get("visibility") or "public", media.get("allowed_tokens") or [], token_data):
@@ -1781,7 +1817,7 @@ async def get_meta(token: str, media_type: str, id: str, token_data: dict = Depe
                     "thumbnail": _abs_media_url(
                         episode.get("episode_backdrop") or episode.get("thumbnail")
                     ) or "https://raw.githubusercontent.com/weebzone/Colab-Tools/refs/heads/main/no_episode_backdrop.png",
-                    "imdb_id": episode.get("imdb_id") or media.get("imdb_id") or (episode_id if parsed.get("is_tmdb") else (id if not parsed["is_kitsu"] else "")),
+                    "imdb_id": episode.get("imdb_id") or media.get("imdb_id") or ("" if parsed.get("is_tmdb") or parsed["is_kitsu"] else id),
                 })
         meta_obj["videos"] = videos
         if not videos:
@@ -2070,7 +2106,7 @@ async def configure_addon(token: str, request: Request):
 
     return templates.TemplateResponse("stremio_configure.html", {
         "request": request,
-        "theme": get_theme(request.session.get("theme", DEFAULT_THEME), request.session.get("style", DEFAULT_STYLE)),
+        "theme": get_theme(theme_key(request)),
         "manifest_url": manifest_url,
         "web_install_url": web_install_url,
         "badge_url": f"{SettingsManager.current().base_url}/badges/prism.json",
@@ -2084,9 +2120,9 @@ async def configure_addon(token: str, request: Request):
 #----- Catalogs this token can see, in effective (token or global) order
 async def _addon_catalogs_for_token(token_data: dict) -> list:
     entries = [
-        {"id": "latest_movies", "name": "Latest Movies", "type": "movie"},
+        {"id": "latest_movies", "name": "Recently Added Movies", "type": "movie"},
         {"id": "top_movies", "name": "Popular Movies", "type": "movie"},
-        {"id": "latest_series", "name": "Latest Series", "type": "series"},
+        {"id": "latest_series", "name": "Recently Added Series", "type": "series"},
         {"id": "top_series", "name": "Popular Series", "type": "series"},
         {"id": "trending_movies", "name": "Trending Movies", "type": "movie"},
         {"id": "trending_series", "name": "Trending Series", "type": "series"},
@@ -2105,6 +2141,8 @@ async def _addon_catalogs_for_token(token_data: dict) -> list:
         pass
     for e in entries:
         e["key"] = f"{e['id']}::{e['type']}"
+    admin_hidden = set(await db.get_hidden_catalogs())
+    entries = [e for e in entries if e["key"] not in admin_hidden and e["id"] not in admin_hidden]
     order = await db.get_catalog_order()
     tconf = token_data.get("config") or {}
     effective = tconf.get("catalog_order") or order
