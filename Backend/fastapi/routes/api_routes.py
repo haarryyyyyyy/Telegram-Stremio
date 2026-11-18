@@ -46,6 +46,7 @@ from Backend.helper.passwords import hash_password, verify_password
 from Backend.helper.pyro import get_readable_file_size, get_readable_time
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.task_manager import delete_messages_batch
 from Backend.helper.skipped_files import import_skip_channel, import_state, retry_skipped
 from Backend.fastapi.security import tokens as token_cache
 from Backend.helper.split_files import strip_part_suffix
@@ -2196,11 +2197,12 @@ async def restart_app_api() -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _skipped_retry_all = {"running": False, "done": 0, "ok": 0, "total": 0}
+_skipped_remove_all = {"running": False, "records": 0, "messages": 0, "kept": 0}
 
 
 async def list_skipped_api(status: str = "pending", page: int = 1, per_page: int = 50) -> dict:
     per_page = min(max(per_page, 1), 200)
-    data = await db.list_skipped_files(status=status or None, page=max(page, 1), per_page=per_page)
+    data = await db.list_skipped_files(status=None if status in ("", "all") else status, page=max(page, 1), per_page=per_page)
     items = [{
         "id": d["_id"], "chat_id": d.get("chat_id"), "msg_id": d.get("msg_id"),
         "file_name": d.get("file_name") or "", "caption": d.get("caption") or "",
@@ -2209,7 +2211,7 @@ async def list_skipped_api(status: str = "pending", page: int = 1, per_page: int
         "attempts": d.get("attempts", 0), "created_at": d.get("created_at"),
     } for d in data["items"]]
     return {"total": data["total"], "page": page, "per_page": per_page, "items": items,
-            "retry_all": dict(_skipped_retry_all), "import": dict(import_state)}
+            "retry_all": dict(_skipped_retry_all), "import": dict(import_state), "remove_all": dict(_skipped_remove_all)}
 
 
 async def retry_skipped_api(skipped_id: str, payload: dict) -> dict:
@@ -2277,3 +2279,33 @@ async def import_skipped_api() -> dict:
         raise HTTPException(status_code=503, detail="Bot is not ready.")
     asyncio.create_task(import_skip_channel(client))
     return {"status": "started", **import_state}
+
+
+#----- Remove every skipped record and delete the skip-channel copies from Telegram.
+#----- Only messages inside the skip channel are deleted; a file still in a library channel is never touched.
+async def _remove_all_skipped_run() -> dict:
+    skip = str(SettingsManager.current().skip_channel or "").replace("-100", "").strip()
+    docs = (await db.list_skipped_files(None, 1, 100000))["items"]
+    in_skip = [int(d["msg_id"]) for d in docs if skip and str(d.get("chat_id")) == skip]
+    if in_skip:
+        await delete_messages_batch(int(f"-100{skip}"), in_skip)
+    records = await db.delete_skipped_files([d["_id"] for d in docs])
+    return {"records": records, "messages": len(in_skip), "kept": len(docs) - len(in_skip)}
+
+
+async def remove_all_skipped_api() -> dict:
+    st = _skipped_remove_all
+    if st["running"]:
+        return {"status": "running", **st}
+    st.update(running=True, records=0, messages=0, kept=0)
+
+    async def _run():
+        try:
+            st.update(await _remove_all_skipped_run())
+        except Exception as e:
+            LOGGER.error(f"[Skipped] Remove all failed: {e}")
+        finally:
+            st["running"] = False
+
+    asyncio.create_task(_run())
+    return {"status": "started", **st}

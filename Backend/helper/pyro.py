@@ -41,6 +41,8 @@ _CHANNEL_TAG_PATTERN = re.compile(
     r"_@[A-Za-z]+_|@[A-Za-z]+_|[\[\]\s@]*@[^.\s\[\]]+[\]\[\s@]*"
 )
 
+_TRAILING_RES = re.compile(r"(?i)(?:\d{3,4}[pi]|[248]k)$")
+
 _CODEC_TAG_PATTERN = re.compile(
     r"(?<=\W)(org|AMZN|DDP|DD|NF|AAC|TVDL|5\.1|2\.1|2\.0|7\.0|7\.1|5\.0|~|\b\w+kbps\b)(?=\W)",
     re.IGNORECASE,
@@ -237,7 +239,12 @@ def clean_filename(filename: str) -> str:
     filename = re.sub(r"[^\x20-\x7E]", " ", filename)
 
     #----- 5 – Remove Telegram channel tags  (@ChannelName_ etc.)
-    filename = _CHANNEL_TAG_PATTERN.sub("", filename)
+    #----- Replace the tag with a space, never glue the neighbours together ("DD5.1 @Chan 1080p" -> "DD5.11080p"
+    #----- lost the resolution). A tag that swallowed a resolution ("@Chan1080p") hands it back.
+    def _drop_tag(m):
+        kept = _TRAILING_RES.search(m.group(0).strip(" []@"))
+        return f" {kept.group(0)} " if kept else " "
+    filename = _CHANNEL_TAG_PATTERN.sub(_drop_tag, filename)
 
     #----- 6 – Remove codec / source tags that clutter the title region
     filename = _CODEC_TAG_PATTERN.sub(" ", filename)

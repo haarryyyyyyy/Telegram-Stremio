@@ -1114,6 +1114,12 @@ class Database:
         res = await self.dbs["tracking"]["skipped_files"].update_one({"_id": skipped_id}, {"$set": fields})
         return res.matched_count > 0
 
+    async def delete_skipped_files(self, ids: list) -> int:
+        if not ids:
+            return 0
+        res = await self.dbs["tracking"]["skipped_files"].delete_many({"_id": {"$in": list(ids)}})
+        return res.deleted_count
+
     async def delete_skipped_file(self, skipped_id: str) -> bool:
         res = await self.dbs["tracking"]["skipped_files"].delete_one({"_id": skipped_id})
         return res.deleted_count > 0

@@ -48,6 +48,7 @@
                 <span id="sk-total" class="sk-meta"></span>
                 <button class="sk-btn" id="sk-import" onclick="importSkipChannel()">Import from skip channel</button>
                 <button class="sk-btn primary" id="sk-retry-all" onclick="retryAll()">Retry all</button>
+                <button class="sk-btn danger" id="sk-remove-all" onclick="removeAll()">Remove all</button>
             </div>
         </div>
         <div class="sk-tabs" style="margin-top:.8rem">
@@ -57,6 +58,7 @@
         </div>
         <p id="sk-progress" class="sk-meta" style="margin-top:.6rem;display:none"></p>
         <p id="sk-import-status" class="sk-meta" style="margin-top:.3rem;display:none"></p>
+        <p id="sk-remove-status" class="sk-meta" style="margin-top:.3rem;display:none"></p>
     </div>
 
     <div id="sk-list" class="sk-shell"></div>
@@ -74,6 +76,7 @@ let page = 1;
 let pages = 1;
 let pollTimer = null;
 let importRunning = false;
+let removeRunning = false;
 
 function el(tag, attrs = {}, text = '') {
     const e = document.createElement(tag);
@@ -121,6 +124,7 @@ async function load() {
         document.getElementById('sk-next').disabled = page >= pages;
         updateProgress(data.retry_all);
         updateImport(data.import);
+        updateRemove(data.remove_all);
         list.replaceChildren();
         if (!data.items.length) {
             list.append(el('div', { class: 'sk-card sk-empty' }, 'Nothing here.'));
@@ -183,7 +187,7 @@ function updateProgress(st) {
         if (!pollTimer) pollTimer = setInterval(load, 3000);
     } else {
         btn.disabled = false;
-        if (pollTimer && !importRunning) { clearInterval(pollTimer); pollTimer = null; }
+        if (pollTimer && !importRunning && !removeRunning) { clearInterval(pollTimer); pollTimer = null; }
         if (st && st.total) { p.style.display = ''; p.textContent = 'Last retry-all: ' + st.ok + ' of ' + st.total + ' indexed.'; }
         else p.style.display = 'none';
     }
@@ -203,6 +207,27 @@ function updateImport(st) {
         else if (st && st.scanned) { p.style.display = ''; p.textContent = 'Last import: ' + st.added + ' added of ' + st.found + ' files found.'; }
         else p.style.display = 'none';
     }
+}
+
+function updateRemove(st) {
+    removeRunning = !!(st && st.running);
+    const p = document.getElementById('sk-remove-status');
+    const btn = document.getElementById('sk-remove-all');
+    btn.disabled = removeRunning;
+    if (removeRunning) {
+        p.style.display = ''; p.textContent = 'Removing skipped files and deleting their copies from the skip channel…';
+        if (!pollTimer) pollTimer = setInterval(load, 3000);
+    } else if (st && st.records) {
+        p.style.display = ''; p.textContent = 'Removed ' + st.records + ' record(s); deleted ' + st.messages + ' message(s) from the skip channel.' + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '');
+    } else p.style.display = 'none';
+}
+
+async function removeAll() {
+    let total;
+    try { total = (await api('/api/admin/skipped?status=all')).total; } catch (e) { alert(e.message); return; }
+    if (!total) { alert('Nothing to remove.'); return; }
+    if (!confirm('Remove ALL ' + total + ' skipped files?\n\nEvery entry is deleted from this list and its copy is deleted from the skip channel in Telegram. This cannot be undone.')) return;
+    try { await post('/api/admin/skipped/remove-all'); load(); } catch (e) { alert(e.message); }
 }
 
 async function importSkipChannel() {
