@@ -1,5 +1,6 @@
+import time
 from datetime import datetime
-from logging import ERROR, INFO, FileHandler, Formatter, StreamHandler, basicConfig, getLogger
+from logging import ERROR, INFO, FileHandler, Filter, Formatter, StreamHandler, basicConfig, getLogger
 
 import pytz
 
@@ -22,6 +23,24 @@ stream_handler.setFormatter(formatter)
 
 basicConfig(handlers=[file_handler, stream_handler], level=INFO)
 
+#----- asyncio warns "socket.send() raised exception." on every write to a closed socket, hundreds per second
+#----- when a connection dies mid-stream. Keep the first one and drop repeats for a minute.
+class ThrottleClosedSocketWarning(Filter):
+    def __init__(self, every: float = 60):
+        super().__init__()
+        self.every, self.last = every, None
+
+    def filter(self, record):
+        if record.getMessage() != "socket.send() raised exception.":
+            return True
+        now = time.monotonic()
+        if self.last is None or now - self.last >= self.every:
+            self.last = now
+            return True
+        return False
+
+
+getLogger("asyncio").addFilter(ThrottleClosedSocketWarning())
 getLogger("httpx").setLevel(ERROR)
 getLogger("pyrogram").setLevel(ERROR)
 getLogger("fastapi").setLevel(ERROR)

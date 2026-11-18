@@ -16,7 +16,18 @@ PING_TIMEOUT = 15     # seconds a ping may take before the connection counts as 
 _healing: dict = {}   # client index -> running heal task, so one client restarts once at a time
 
 
+#----- True when the session's socket is already closed. Writing to it only makes asyncio log
+#----- "socket.send() raised exception." for every attempt, so callers check this first.
+def session_is_dead(session) -> bool:
+    try:
+        return bool(session.connection.protocol.writer.is_closing())
+    except AttributeError:
+        return False
+
+
 async def _alive(session) -> bool:
+    if session_is_dead(session):
+        return False
     try:
         await asyncio.wait_for(session.send(raw.functions.Ping(ping_id=0)), PING_TIMEOUT)
         return True
@@ -29,6 +40,16 @@ async def _stop_quietly(session) -> None:
         await session.stop()
     except Exception:
         pass
+
+
+#----- A fresh download session for the file's DC. The dead one is removed from the client's cache (unless
+#----- another stream already replaced it) so nothing else picks it up.
+async def fresh_media_session(streamer, file_id, dead):
+    cache = streamer.client.media_sessions
+    if cache.get(file_id.dc_id) is dead:
+        cache.pop(file_id.dc_id, None)
+        asyncio.ensure_future(_stop_quietly(dead))
+    return await streamer._get_media_session(file_id)
 
 
 #----- Reconnect a client's main session. Concurrent callers share one restart.
