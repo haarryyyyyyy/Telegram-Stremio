@@ -78,6 +78,8 @@ let pages = 1;
 let pollTimer = null;
 let importRunning = false;
 let removeRunning = false;
+// Results show only for jobs started or seen running in this visit, never stale ones from earlier
+const watching = { retry: false, import: false, remove: false };
 
 function el(tag, attrs = {}, text = '') {
     const e = document.createElement(tag);
@@ -185,12 +187,12 @@ function updateProgress(st) {
     if (st && st.running) {
         p.style.display = ''; p.textContent = 'Retrying: ' + st.done + ' / ' + st.total + ' done, ' + st.ok + ' indexed';
         btn.disabled = true;
+        watching.retry = true;
         if (!pollTimer) pollTimer = setInterval(load, 3000);
     } else {
         btn.disabled = false;
         if (pollTimer && !importRunning && !removeRunning) { clearInterval(pollTimer); pollTimer = null; }
-        if (st && st.total) { p.style.display = ''; p.textContent = 'Last retry-all: ' + st.ok + ' of ' + st.total + ' indexed.'; }
-        else p.style.display = 'none';
+        if (watching.retry && st && st.total) { p.style.display = ''; p.textContent = 'Retry all finished: ' + st.ok + ' of ' + st.total + ' indexed.'; }
     }
 }
 
@@ -201,12 +203,13 @@ function updateImport(st) {
     if (st && st.running) {
         p.style.display = ''; p.textContent = 'Importing: scanned ' + st.scanned + ' ids, ' + st.added + ' added';
         btn.disabled = true;
+        watching.import = true;
         if (!pollTimer) pollTimer = setInterval(load, 3000);
     } else {
         btn.disabled = false;
-        if (st && st.error) { p.style.display = ''; p.textContent = 'Import failed: ' + st.error; }
-        else if (st && st.scanned) { p.style.display = ''; p.textContent = 'Last import: ' + st.added + ' added of ' + st.found + ' files found.'; }
-        else p.style.display = 'none';
+        if (!watching.import || !st) return;
+        p.style.display = '';
+        p.textContent = st.error ? 'Import failed: ' + st.error : 'Import finished: ' + st.added + ' added of ' + st.found + ' files found.';
     }
 }
 
@@ -217,14 +220,15 @@ function updateRemove(st) {
     btn.disabled = removeRunning;
     if (removeRunning) {
         p.style.display = ''; p.textContent = 'Removing skipped files and deleting their copies from the skip channel…';
+        watching.remove = true;
         if (!pollTimer) pollTimer = setInterval(load, 3000);
-    } else if (st && (st.records || st.failed)) {
+    } else if (watching.remove && st && (st.records || st.failed)) {
         p.style.display = '';
         p.style.color = st.failed ? 'var(--danger, #ef4444)' : '';
         p.textContent = 'Removed ' + st.records + ' record(s); deleted ' + st.messages + ' message(s) from the skip channel.'
             + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '')
-            + (st.failed ? ' ' + st.failed + ' could not be deleted and were moved to Ignored: Telegram does not let bots delete messages older than 48 hours. Delete those by hand in the skip channel if you want them gone. (' + st.error + ')' : '');
-    } else p.style.display = 'none';
+            + (st.failed ? ' ' + st.failed + ' could not be deleted and were moved to Ignored. (' + st.error + ')' : '');
+    }
 }
 
 async function ignoreAll() {
@@ -245,17 +249,17 @@ async function removeAll() {
     try { total = (await api('/api/admin/skipped?status=all')).total; } catch (e) { alert(e.message); return; }
     if (!total) { alert('Nothing to remove.'); return; }
     if (!confirm('Remove ALL ' + total + ' skipped files?\n\nEvery entry is deleted from this list and its copy is deleted from the skip channel in Telegram. This cannot be undone.')) return;
-    try { await post('/api/admin/skipped/remove-all'); load(); } catch (e) { alert(e.message); }
+    try { watching.remove = true; await post('/api/admin/skipped/remove-all'); load(); } catch (e) { alert(e.message); }
 }
 
 async function importSkipChannel() {
     if (!confirm('Scan the skip channel and add every file in it to this list?')) return;
-    try { await post('/api/admin/skipped/import'); load(); } catch (e) { alert(e.message); }
+    try { watching.import = true; await post('/api/admin/skipped/import'); load(); } catch (e) { alert(e.message); }
 }
 
 async function retryAll() {
     if (!confirm('Retry every pending file? This runs in the background, one file per second.')) return;
-    try { await post('/api/admin/skipped/retry-all'); load(); } catch (e) { alert(e.message); }
+    try { watching.retry = true; await post('/api/admin/skipped/retry-all'); load(); } catch (e) { alert(e.message); }
 }
 
 load();
