@@ -46,6 +46,7 @@ from Backend.helper.passwords import hash_password, verify_password
 from Backend.helper.pyro import get_readable_file_size, get_readable_time
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper import task_manager
 from Backend.helper.task_manager import delete_messages_batch
 from Backend.helper.skipped_files import import_skip_channel, import_state, retry_skipped
 from Backend.fastapi.security import tokens as token_cache
@@ -2197,7 +2198,7 @@ async def restart_app_api() -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _skipped_retry_all = {"running": False, "done": 0, "ok": 0, "total": 0}
-_skipped_remove_all = {"running": False, "records": 0, "messages": 0, "kept": 0}
+_skipped_remove_all = {"running": False, "records": 0, "messages": 0, "kept": 0, "failed": 0, "error": ""}
 
 
 async def list_skipped_api(status: str = "pending", page: int = 1, per_page: int = 50) -> dict:
@@ -2287,17 +2288,19 @@ async def _remove_all_skipped_run() -> dict:
     skip = str(SettingsManager.current().skip_channel or "").replace("-100", "").strip()
     docs = (await db.list_skipped_files(None, 1, 100000))["items"]
     in_skip = [int(d["msg_id"]) for d in docs if skip and str(d.get("chat_id")) == skip]
-    if in_skip:
-        await delete_messages_batch(int(f"-100{skip}"), in_skip)
-    records = await db.delete_skipped_files([d["_id"] for d in docs])
-    return {"records": records, "messages": len(in_skip), "kept": len(docs) - len(in_skip)}
+    failed = set(await delete_messages_batch(int(f"-100{skip}"), in_skip) or []) if in_skip else set()
+    #----- A message no bot could delete keeps its record, so it stays visible and can be retried
+    gone = [d["_id"] for d in docs if not (skip and str(d.get("chat_id")) == skip and int(d["msg_id"]) in failed)]
+    records = await db.delete_skipped_files(gone)
+    return {"records": records, "messages": len(in_skip) - len(failed), "kept": len(docs) - len(in_skip),
+            "failed": len(failed), "error": task_manager.last_delete_error if failed else ""}
 
 
 async def remove_all_skipped_api() -> dict:
     st = _skipped_remove_all
     if st["running"]:
         return {"status": "running", **st}
-    st.update(running=True, records=0, messages=0, kept=0)
+    st.update(running=True, records=0, messages=0, kept=0, failed=0, error="")
 
     async def _run():
         try:
