@@ -81,12 +81,12 @@ async def delete_messages_batch(chat_id: int, msg_ids: List[int]) -> List[int]:
     for i in range(0, len(msg_ids or []), DELETE_BATCH_SIZE):
         chunk = msg_ids[i:i + DELETE_BATCH_SIZE]
 
-        remaining = await _delete_chunk(StreamBot, "StreamBot", chat_id, chunk)
+        remaining = await _delete_with(StreamBot, "StreamBot", chat_id, chunk)
         for idx, client in list(multi_clients.items()):
             if not remaining:
                 break
             if client is not StreamBot:
-                remaining = await _delete_chunk(client, f"Bot{idx}", chat_id, remaining)
+                remaining = await _delete_with(client, f"Bot{idx}", chat_id, remaining)
 
         if remaining:
             LOGGER.error(f"Could not delete {len(remaining)} message(s) in {chat_id}: {last_delete_error}")
@@ -94,6 +94,35 @@ async def delete_messages_batch(chat_id: int, msg_ids: List[int]) -> List[int]:
 
         await sleep(1)
     return failed
+
+
+#----- Telegram rejects a whole batch when any one id cannot be deleted (MESSAGE_DELETE_FORBIDDEN, e.g. a
+#----- service message). After a failed batch, delete one by one so only the bad ids stay.
+async def _delete_with(client, label: str, chat_id: int, msg_ids: List[int]) -> List[int]:
+    remaining = await _delete_chunk(client, label, chat_id, msg_ids)
+    if len(remaining) <= 1:
+        return remaining
+    left = []
+    for mid in remaining:
+        left += await _delete_chunk(client, label, chat_id, [mid])
+        await sleep(0.05)
+    return left
+
+
+#----- One line per bot: is it an admin of the chat, and may it delete messages there
+async def delete_rights_report(chat_id: int) -> str:
+    lines = []
+    for idx, client in list(multi_clients.items()):
+        name = "@" + (getattr(getattr(client, "me", None), "username", None) or f"bot{idx}")
+        try:
+            m = await client.get_chat_member(chat_id, "me")
+        except Exception as e:
+            lines.append(f"{name}: not reachable ({e})")
+            continue
+        status = getattr(getattr(m, "status", None), "name", str(getattr(m, "status", ""))).lower()
+        can = bool(getattr(getattr(m, "privileges", None), "can_delete_messages", False))
+        lines.append(f"{name}: {status}, {'can delete' if can else 'cannot delete'}")
+    return "; ".join(lines)
 
 
 async def _delete_chunk(client, client_label: str, chat_id: int, msg_ids: List[int]) -> List[int]:

@@ -2294,7 +2294,9 @@ async def _remove_all_skipped_run() -> dict:
     gone = [d["_id"] for d in docs if not (skip and str(d.get("chat_id")) == skip and int(d["msg_id"]) in failed)]
     records = await db.delete_skipped_files(gone)
     return {"records": records, "messages": len(in_skip) - len(failed), "kept": len(docs) - len(in_skip),
-            "failed": len(failed), "error": task_manager.last_delete_error if failed else ""}
+            "failed": len(failed),
+            "error": f"{task_manager.last_delete_error}. Bot rights in the skip channel: "
+                     f"{await task_manager.delete_rights_report(int(f'-100{skip}'))}" if failed else ""}
 
 
 async def remove_all_skipped_api() -> dict:
