@@ -46,6 +46,17 @@
   @keyframes pulseDot { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
   @media (min-width: 640px) { .bot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @media (min-width: 1024px) { .bot-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .ld-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  @media (min-width: 640px) { .ld-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1280px) { .ld-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+  .ld-tile { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .9rem; min-width: 0; display: flex; flex-direction: column; }
+  .ld-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.4rem; }
+  .ld-label { font-size: .8rem; color: var(--text-sec); }
+  .ld-value { font-size: 1.35rem; font-weight: 600; line-height: 1.15; margin-top: .35rem; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ld-sub { font-size: .75rem; color: var(--text-sec); margin-top: .2rem; font-variant-numeric: tabular-nums; }
+  .ld-spark { width: 100%; height: 32px; margin-top: auto; padding-top: .6rem; overflow: visible; }
+  .ld-line { fill: none; stroke: var(--primary); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .ld-area { fill: color-mix(in srgb, var(--primary) 12%, transparent); }
   @media (max-width: 767.98px) {
     .desktop-table { display: none; }
     .mobile-list { display: grid; gap: .75rem; }
@@ -64,18 +75,53 @@
         </div>
     </header>
 
-    <div class="glass-card rounded-3xl p-5 mb-8" id="stats-container">
-        <div class="grid grid-cols-2 gap-6">
-            <div class="flex items-center gap-3 min-w-0">
-                <span class="metric-icon"><i class="fa-solid fa-memory"></i></span>
-                <div class="min-w-0"><p class="text-xl font-semibold tabular" id="stat-cache-size">-</p><p class="text-sm muted truncate">Cached file IDs</p></div>
+    <section class="glass-card rounded-3xl mb-8" id="stats-container" aria-labelledby="ld-title">
+        <div class="px-5 py-4 border-b border-border flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h2 id="ld-title" class="section-title text-lg">Server load</h2>
+                <p class="muted text-sm mt-1">Last 10 minutes, updated every 5 seconds.</p>
             </div>
-            <div class="flex items-center gap-3 min-w-0">
-                <span class="metric-icon"><i class="fa-solid fa-robot"></i></span>
-                <div class="min-w-0"><p class="text-xl font-semibold tabular" id="stat-bot-count">-</p><p class="text-sm muted truncate">Connected bots</p></div>
+            <span class="pill"><span class="loading-dot"></span> <span id="ld-state">live</span></span>
+        </div>
+        <div class="ld-grid p-4 sm:p-5">
+            <div class="ld-tile" id="ld-cpu">
+                <div class="ld-head"><span class="ld-label">CPU</span><span class="ld-flag"></span></div>
+                <p class="ld-value">—</p>
+                <p class="ld-sub">&nbsp;</p>
+                <svg class="ld-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><path class="ld-area"></path><path class="ld-line"></path></svg>
+            </div>
+            <div class="ld-tile" id="ld-mem">
+                <div class="ld-head"><span class="ld-label">Memory</span><span class="ld-flag"></span></div>
+                <p class="ld-value">—</p>
+                <p class="ld-sub">&nbsp;</p>
+                <svg class="ld-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><path class="ld-area"></path><path class="ld-line"></path></svg>
+            </div>
+            <div class="ld-tile" id="ld-net">
+                <div class="ld-head"><span class="ld-label">Sending to players</span><span class="ld-flag"></span></div>
+                <p class="ld-value">—</p>
+                <p class="ld-sub">&nbsp;</p>
+                <svg class="ld-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><path class="ld-area"></path><path class="ld-line"></path></svg>
+            </div>
+            <div class="ld-tile" id="ld-lag">
+                <div class="ld-head"><span class="ld-label">Response delay</span><span class="ld-flag"></span></div>
+                <p class="ld-value">—</p>
+                <p class="ld-sub">&nbsp;</p>
+                <svg class="ld-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><path class="ld-area"></path><path class="ld-line"></path></svg>
+            </div>
+            <div class="ld-tile" id="ld-streams">
+                <div class="ld-head"><span class="ld-label">Streams</span><span class="ld-flag"></span></div>
+                <p class="ld-value">—</p>
+                <p class="ld-sub">&nbsp;</p>
+                <svg class="ld-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><path class="ld-area"></path><path class="ld-line"></path></svg>
+            </div>
+            <div class="ld-tile" id="ld-disk">
+                <div class="ld-head"><span class="ld-label">Disk</span><span class="ld-flag"></span></div>
+                <p class="ld-value">—</p>
+                <p class="ld-sub">&nbsp;</p>
             </div>
         </div>
-    </div>
+        <p class="px-5 pb-4 text-sm muted tabular">Cached file IDs <span id="stat-cache-size">-</span> · Connected bots <span id="stat-bot-count">-</span></p>
+    </section>
 
     <div class="glass-card rounded-3xl overflow-hidden mb-8">
         <div class="px-5 py-4 border-b border-border flex flex-wrap items-center justify-between gap-3">
@@ -90,7 +136,7 @@
         </div>
 
         <div class="p-4 sm:p-5">
-            <div id="hz-infra" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+            <div id="hz-infra" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
                 <div class="empty-state">Running checks…</div>
             </div>
             <h3 class="hz-subhead"><i class="fa-solid fa-robot"></i> Telegram Clients <span class="pill" style="margin-left:.35rem"><span class="loading-dot"></span> live</span></h3>
@@ -302,7 +348,7 @@
     function hzMini(ok) { return `<span class="mini-dot" style="background:${ok ? 'var(--ok)' : 'var(--danger)'}"></span>`; }
 
     function hzInfraCard(sec) {
-        const icon = { databases: 'fa-database', tmdb: 'fa-film', base_url: 'fa-link' }[sec.key] || 'fa-circle-check';
+        const icon = { databases: 'fa-database', tmdb: 'fa-film', base_url: 'fa-link', userbot: 'fa-user-lock' }[sec.key] || 'fa-circle-check';
         let body;
         if (sec.key === 'databases') {
             body = (sec.items || []).map(i => `
@@ -312,6 +358,12 @@
                         ? `${escapeHtml(i.size_mb)} MB<div class="hz-usebar"><span style="width:${Math.min(100, i.usage_pct || 0)}%"></span></div>`
                         : escapeHtml(i.message || 'unreachable')}</div>
                 </div>`).join('') || '<div class="hz-msg">No databases.</div>';
+        } else if (sec.key === 'userbot' && (sec.items || []).length) {
+            body = `<div class="hz-msg" style="margin:0 0 .5rem">${escapeHtml(sec.message || '')}</div>` + sec.items.map(i => `
+                <div class="hz-item">
+                    <div class="lbl">${hzMini(i.can_delete)} ${escapeHtml(i.name)}</div>
+                    <div class="meta">${escapeHtml(i.message || '')}</div>
+                </div>`).join('');
         } else {
             body = `<div class="hz-msg">${escapeHtml(sec.message || '')}${sec.url ? '<br><span style="opacity:.7">' + escapeHtml(sec.url) + '</span>' : ''}</div>`;
         }
@@ -606,7 +658,60 @@
         }
     }
 
+    //----- Server load panel
+    function ldLevel(v, busy, high) { return v == null ? '' : v >= high ? 'high' : v >= busy ? 'busy' : ''; }
+
+    function ldTile(key, value, sub, level, series, max) {
+        const tile = document.getElementById('ld-' + key);
+        if (!tile) return;
+        tile.querySelector('.ld-value').textContent = value;
+        tile.querySelector('.ld-sub').textContent = sub || '\u00a0';
+        const flag = tile.querySelector('.ld-flag');
+        flag.className = 'ld-flag' + (level ? ' status-badge ' + (level === 'high' ? 'status-bad' : 'status-warn') : '');
+        flag.textContent = level === 'high' ? 'High' : level === 'busy' ? 'Busy' : '';
+        const line = tile.querySelector('.ld-line');
+        if (!line || !series) return;
+        const pts = series.map((v, i) => v == null ? null : [series.length > 1 ? i * 120 / (series.length - 1) : 120, 31 - Math.min(1, v / max) * 29])
+            .filter(Boolean);
+        if (pts.length < 2) { line.setAttribute('d', ''); tile.querySelector('.ld-area').setAttribute('d', ''); return; }
+        const d = 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L');
+        line.setAttribute('d', d);
+        tile.querySelector('.ld-area').setAttribute('d', d + 'L' + pts[pts.length - 1][0].toFixed(1) + ',32L' + pts[0][0].toFixed(1) + ',32Z');
+    }
+
+    const ldPct = v => v == null ? '—' : Math.round(v) + '%';
+    const ldRate = v => v == null ? '—' : fmtBytes(v) + '/s';
+
+    async function fetchLoad() {
+        try {
+            const res = await fetch('/api/admin/server-load', { cache: 'no-store' });
+            if (!res.ok) throw new Error();
+            const d = await res.json();
+            const n = d.now || {}, f = d.facts || {}, h = d.history || [];
+            const col = k => h.map(p => p[k]);
+            const peak = (k, floor) => Math.max(floor, ...col(k).filter(v => v != null));
+
+            ldTile('cpu', ldPct(n.cpu), n.app_cpu == null ? (f.cpu_count ? f.cpu_count + ' cores' : '') : 'App ' + ldPct(n.app_cpu) + (f.load_avg ? ' · load ' + f.load_avg[0].toFixed(2) : ''),
+                   ldLevel(n.cpu, 60, 85), col('cpu'), 100);
+            ldTile('mem', ldPct(n.mem), [n.rss != null ? 'App ' + fmtBytes(n.rss) : '', f.mem_total ? 'of ' + fmtBytes(f.mem_total) : '', f.swap_used ? 'swap ' + fmtBytes(f.swap_used) : ''].filter(Boolean).join(' · '),
+                   ldLevel(n.mem, 75, 90), col('mem'), 100);
+            ldTile('net', ldRate(n.tx), n.rx == null ? '' : 'Receiving from Telegram ' + ldRate(n.rx), '',
+                   col('tx'), peak('tx', 1024 * 1024));
+            ldTile('lag', n.lag == null ? '—' : Math.round(n.lag) + ' ms', 'How late the server answers', ldLevel(n.lag, 50, 200), col('lag'), peak('lag', 100));
+            ldTile('streams', n.streams == null ? '—' : String(n.streams), n.bot_load == null ? '' : 'Bot load ' + n.bot_load, '', col('streams'), peak('streams', 4));
+            const freePct = f.disk_total ? 100 * f.disk_free / f.disk_total : null;
+            ldTile('disk', f.disk_free == null ? '—' : fmtBytes(f.disk_free) + ' free',
+                   f.cache_limit ? 'Chunk cache ' + fmtBytes(f.cache_bytes || 0) + ' of ' + fmtBytes(f.cache_limit) : '',
+                   freePct == null ? '' : freePct < 5 ? 'high' : freePct < 15 ? 'busy' : '');
+            document.getElementById('ld-state').textContent = 'live';
+        } catch (e) {
+            document.getElementById('ld-state').textContent = 'offline';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
+        fetchLoad();
+        setInterval(() => { if (!document.hidden) fetchLoad(); }, 5000);
         fetchStats();
         fetchHealthReport();
         fetchAnalytics();

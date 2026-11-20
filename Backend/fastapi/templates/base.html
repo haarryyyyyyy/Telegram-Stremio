@@ -430,6 +430,9 @@ kbd.k { display: inline-grid; place-items: center; min-width: 1.4rem; height: 1.
 @keyframes toast-out { to { opacity: 0; transform: translateY(-6px); } }
 
 .shell { min-width: 0; }
+/* Long unbroken file names, ids, URLs and errors wrap inside their box instead of running out of it */
+main { overflow-wrap: break-word; }
+dialog, [role="dialog"] { overflow-wrap: anywhere; }
 @media (min-width: 768px) {
     .shell { padding-left: var(--rail); }
     #topbar, #dock, #sheet { display: none; }

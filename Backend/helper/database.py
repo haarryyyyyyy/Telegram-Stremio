@@ -109,6 +109,8 @@ class Database:
                 LOGGER.error(f"Failed creating tracking indexes: {e}")
             try:
                 await safe_create_index(tracking["stream_analytics"], [("logged_at", ASCENDING)], expireAfterSeconds=30 * 86400)
+                #----- Old builds saved ZIP index reads as streams by "system"; they are not viewers
+                await tracking["stream_analytics"].delete_many({"title": "zip-index", "user_name": "system"})
             except Exception as e:
                 LOGGER.error(f"Failed creating stream_analytics TTL index: {e}")
 
@@ -2414,6 +2416,8 @@ class Database:
 
     async def log_stream_stats(self, stats: dict) -> None:
         #----- Persist a finished-stream record to the tracking DB for analytics
+        if stats.get("meta", {}).get("internal"):
+            return  # a ZIP index read before playback; the playback itself is logged
         try:
             record = {
                 "stream_id":   stats.get("stream_id"),

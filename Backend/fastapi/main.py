@@ -350,6 +350,11 @@ async def revoke_token(token: str, _: bool = Depends(require_auth)):
 async def get_system_stats(_: bool = Depends(require_auth)):
     return await get_system_stats_api()
 
+@app.get("/api/admin/server-load")
+async def admin_server_load(_: bool = Depends(require_auth)):
+    from Backend.helper.server_load import snapshot
+    return snapshot()
+
 @app.get("/api/admin/system-stats")
 async def admin_system_stats(_: bool = Depends(require_auth)):
     return await get_admin_stats_api()

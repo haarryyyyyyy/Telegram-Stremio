@@ -3,73 +3,120 @@
 
 {% block content %}
 <style>
-    .sk-shell { display: flex; flex-direction: column; gap: 1.25rem; }
+    .sk-shell { display: flex; flex-direction: column; gap: 1rem; }
     .sk-card {
-        background: color-mix(in srgb, var(--card) 50%, transparent);
-        backdrop-filter: blur(20px);
+        background: var(--card);
         border: 1px solid var(--border);
-        border-radius: 1.25rem;
-        padding: 1rem 1.1rem;
+        border-radius: var(--radius);
+        padding: 1.25rem;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
-    .sk-top { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: space-between; }
-    .sk-tabs { display: flex; gap: .4rem; }
-    .sk-tab, .sk-btn {
-        border: 1px solid var(--border); border-radius: .8rem; padding: .45rem .9rem;
-        font-weight: 700; font-size: .8rem; cursor: pointer; background: transparent; color: inherit;
+    @media (max-width: 640px) { .sk-card { padding: 1rem; } }
+    .sk-lede { color: var(--text-sec); font-size: .9rem; line-height: 1.5; margin-top: .4rem; max-width: 62ch; }
+
+    /* Filter: a segmented control, full width on phones */
+    .sk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1rem; margin-top: 1.25rem; }
+    .sk-tabs {
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px;
+        background: var(--surface); border-radius: 9999px; flex: 1 1 18rem; max-width: 26rem;
     }
-    .sk-tab.active, .sk-btn.primary { background: var(--primary); color: #fff; border-color: transparent; }
-    .sk-btn.danger { color: #ef4444; }
+    .sk-tab {
+        min-height: 2.25rem; border: 0; border-radius: 9999px; background: transparent; color: var(--text-sec);
+        font-size: .85rem; font-weight: 500; cursor: pointer;
+        transition-property: background-color, color; transition-duration: .15s;
+    }
+    .sk-tab[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 1px var(--border); }
+    .sk-count { color: var(--text-sec); font-size: .85rem; font-variant-numeric: tabular-nums; }
+
+    /* Bulk actions for the tab on screen */
+    .sk-bulk { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+    .sk-bulk .sk-btn[hidden] { display: none; }
+
+    .sk-btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+        min-height: 2.5rem; padding: .5rem 1rem; border-radius: 9999px;
+        border: 1px solid var(--border); background: transparent; color: var(--text);
+        font-size: .85rem; font-weight: 500; cursor: pointer; white-space: nowrap;
+        transition-property: background-color, border-color, scale; transition-duration: .15s; transition-timing-function: ease-out;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .sk-btn.primary { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+    .sk-btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
     .sk-btn:disabled { opacity: .5; cursor: default; }
-    .sk-name { font-weight: 800; word-break: break-all; }
-    .sk-meta { font-size: .75rem; opacity: .7; margin-top: .15rem; }
-    .sk-reason { font-size: .82rem; margin-top: .45rem; color: #f59e0b; }
-    .sk-fix { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; margin-top: .7rem; }
-    .sk-fix input {
-        border: 1px solid var(--border); border-radius: .7rem; padding: .5rem .7rem;
-        background: transparent; color: inherit; font-size: .82rem; min-width: 0;
+    @media (hover: hover) {
+        .sk-btn:not(:disabled):hover { background: var(--card-high); }
+        .sk-btn.primary:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 88%, var(--text)); }
+        .sk-tab:hover { color: var(--text); }
     }
-    .sk-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .7rem; }
-    .sk-result { font-size: .8rem; margin-top: .5rem; }
-    .sk-result.ok { color: #22c55e; }
-    .sk-result.err { color: #ef4444; }
-    .sk-empty { text-align: center; padding: 2.5rem 1rem; opacity: .7; }
+    @media (prefers-reduced-motion: no-preference) { .sk-btn:not(:disabled):active { scale: .96; } }
+    @media (max-width: 640px) {
+        .sk-bulk .sk-btn { flex: 1 1 calc(50% - .25rem); }
+        .sk-btn { min-height: 2.75rem; }
+        .sk-tab { min-height: 2.5rem; }
+    }
+
+    .sk-status p { font-size: .85rem; line-height: 1.45; padding: .6rem .8rem; border-radius: var(--radius-sm); background: var(--surface); margin-top: .75rem; }
+    .sk-status p.err { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--text); }
+    .sk-status p[hidden] { display: none; }
+
+    /* One skipped file */
+    .sk-name { font-weight: 600; line-height: 1.35; }
+    .sk-meta { font-size: .8rem; color: var(--text-sec); margin-top: .25rem; font-variant-numeric: tabular-nums; }
+    .sk-reason {
+        display: flex; gap: .55rem; align-items: flex-start; margin-top: .75rem; padding: .6rem .8rem;
+        border-radius: var(--radius-sm); font-size: .85rem; line-height: 1.45; color: var(--text);
+        background: color-mix(in srgb, var(--warn) 12%, transparent);
+    }
+    .sk-reason i { color: var(--warn); margin-top: .2rem; }
+    .sk-fix { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .5rem; margin-top: 1rem; }
+    .sk-fix input {
+        border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .6rem .8rem; min-height: 2.5rem;
+        background: var(--bg); color: var(--text); font-size: .9rem; min-width: 0;
+    }
+    .sk-fix input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+    @media (max-width: 640px) { .sk-fix input { font-size: 16px; min-height: 2.75rem; } }
+    .sk-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+    .sk-result { font-size: .85rem; margin-top: .6rem; }
+    .sk-result:empty { display: none; }
+    .sk-result.ok { color: var(--ok); }
+    .sk-result.err { color: var(--danger); }
+    .sk-empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-sec); }
+    .sk-pager { display: flex; gap: .75rem; justify-content: center; align-items: center; }
 </style>
 
 <div class="sk-shell">
-    <div class="sk-card">
-        <div class="sk-top">
-            <div>
-                <h1 style="font-size:1.4rem;font-weight:900">Skipped files</h1>
-                <p class="sk-meta" style="font-size:.85rem">
-                    Files the indexer could not match. Add a title, an IMDb id (tt1234567) or a TMDB link, then press Retry.
-                </p>
-            </div>
-            <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-                <span id="sk-total" class="sk-meta"></span>
-                <button class="sk-btn" id="sk-import" onclick="importSkipChannel()">Import from skip channel</button>
-                <button class="sk-btn primary" id="sk-retry-all" onclick="retryAll()">Retry all</button>
-                <button class="sk-btn" id="sk-ignore-all" onclick="ignoreAll()">Ignore all</button>
-                <button class="sk-btn danger" id="sk-remove-all" onclick="removeAll()">Remove all</button>
-            </div>
-        </div>
-        <div class="sk-tabs" style="margin-top:.8rem">
-            <button class="sk-tab active" data-status="pending" onclick="setStatus('pending')">Pending</button>
-            <button class="sk-tab" data-status="ignored" onclick="setStatus('ignored')">Ignored</button>
-            <button class="sk-tab" data-status="missing" onclick="setStatus('missing')">Missing</button>
-            <button class="sk-btn danger" id="sk-delete-ignored" onclick="deleteIgnored()" style="margin-left:auto;display:none">Delete everything</button>
-        </div>
-        <p id="sk-progress" class="sk-meta" style="margin-top:.6rem;display:none"></p>
-        <p id="sk-import-status" class="sk-meta" style="margin-top:.3rem;display:none"></p>
-        <p id="sk-remove-status" class="sk-meta" style="margin-top:.3rem;display:none"></p>
-    </div>
+    <section class="sk-card" aria-labelledby="sk-title">
+        <h1 id="sk-title" class="page-title">Skipped files</h1>
+        <p class="sk-lede">Files the indexer could not match. Add a title, an IMDb id (tt1234567) or a TMDB link, then press Retry.</p>
 
-    <div id="sk-list" class="sk-shell"></div>
+        <div class="sk-bar">
+            <div class="sk-tabs" role="group" aria-label="Show">
+                <button type="button" class="sk-tab" data-status="pending" aria-pressed="true" onclick="setStatus('pending')">Pending</button>
+                <button type="button" class="sk-tab" data-status="ignored" aria-pressed="false" onclick="setStatus('ignored')">Ignored</button>
+                <button type="button" class="sk-tab" data-status="missing" aria-pressed="false" onclick="setStatus('missing')">Missing</button>
+            </div>
+            <span id="sk-total" class="sk-count"></span>
+        </div>
 
-    <div style="display:flex;gap:.5rem;justify-content:center">
-        <button class="sk-btn" id="sk-prev" onclick="goPage(-1)">Previous</button>
-        <span id="sk-page" class="sk-meta" style="align-self:center"></span>
-        <button class="sk-btn" id="sk-next" onclick="goPage(1)">Next</button>
-    </div>
+        <div class="sk-bulk">
+            <button type="button" class="sk-btn primary" id="sk-retry-all" data-tabs="pending" onclick="retryAll()">Retry all</button>
+            <button type="button" class="sk-btn" id="sk-import" data-tabs="pending ignored missing" onclick="importSkipChannel()">Import from skip channel</button>
+            <button type="button" class="sk-btn" id="sk-ignore-all" data-tabs="pending" onclick="ignoreAll()">Ignore all</button>
+            <button type="button" class="sk-btn danger" id="sk-remove-all" data-tabs="pending missing" onclick="removeAll()">Remove all</button>
+            <button type="button" class="sk-btn danger" id="sk-delete-ignored" data-tabs="ignored" onclick="deleteIgnored()" hidden>Delete everything</button>
+        </div>
+
+        <div class="sk-status" role="status" aria-live="polite"><p id="sk-progress" hidden></p><p id="sk-import-status" hidden></p><p id="sk-remove-status" hidden></p></div>
+    </section>
+
+    <div id="sk-list" class="sk-shell" aria-live="off"></div>
+
+    <nav class="sk-pager" aria-label="Pages">
+        <button type="button" class="sk-btn" id="sk-prev" onclick="goPage(-1)">Previous</button>
+        <span id="sk-page" class="sk-count"></span>
+        <button type="button" class="sk-btn" id="sk-next" onclick="goPage(1)">Next</button>
+    </nav>
 </div>
 
 <script>
@@ -93,6 +140,13 @@ function el(tag, attrs = {}, text = '') {
     return e;
 }
 
+function showStatus(id, text, isError) {
+    const p = document.getElementById(id);
+    p.hidden = false;
+    p.classList.toggle('err', !!isError);
+    p.textContent = text;
+}
+
 async function api(url, opts) {
     const res = await fetch(url, opts);
     let data = {};
@@ -107,8 +161,8 @@ function post(url, body) {
 
 function setStatus(s) {
     status = s; page = 1;
-    document.querySelectorAll('.sk-tab').forEach(t => t.classList.toggle('active', t.dataset.status === s));
-    document.getElementById('sk-delete-ignored').style.display = s === 'ignored' ? '' : 'none';
+    document.querySelectorAll('.sk-tab').forEach(t => t.setAttribute('aria-pressed', String(t.dataset.status === s)));
+    document.querySelectorAll('.sk-bulk [data-tabs]').forEach(b => { b.hidden = !b.dataset.tabs.split(' ').includes(s); });
     load();
 }
 
@@ -142,15 +196,17 @@ async function load() {
 }
 
 function renderItem(it) {
-    const card = el('div', { class: 'sk-card' });
+    const card = el('article', { class: 'sk-card' });
     card.append(el('div', { class: 'sk-name' }, it.caption || it.file_name || '(no name)'));
     if (it.caption && it.file_name && it.caption !== it.file_name) card.append(el('div', { class: 'sk-meta' }, 'File: ' + it.file_name));
     card.append(el('div', { class: 'sk-meta' }, it.size + ' · channel ' + it.chat_id + ' · msg ' + it.msg_id + (it.attempts ? ' · tried ' + it.attempts + 'x' : '')));
-    card.append(el('div', { class: 'sk-reason' }, it.reason));
+    const reason = el('div', { class: 'sk-reason' });
+    reason.append(el('i', { class: 'fa-solid fa-triangle-exclamation', 'aria-hidden': 'true' }), el('span', {}, it.reason || 'No reason recorded.'));
+    card.append(reason);
 
-    const title = el('input', { placeholder: 'Full name, e.g. Show S02E05 (optional)', maxlength: '300' });
-    const id = el('input', { placeholder: 'IMDb tt… or TMDB link/id', maxlength: '200' });
-    const season = el('input', { placeholder: 'Season (optional)', type: 'number', min: '1' });
+    const title = el('input', { placeholder: 'Full name, e.g. Show S02E05 (optional)', 'aria-label': 'Title to search', maxlength: '300', autocomplete: 'off' });
+    const id = el('input', { placeholder: 'IMDb tt… or TMDB link/id', 'aria-label': 'IMDb or TMDB id', maxlength: '200', autocomplete: 'off' });
+    const season = el('input', { placeholder: 'Season (optional)', 'aria-label': 'Season', type: 'number', min: '1', inputmode: 'numeric' });
     card.append(el('div', { class: 'sk-fix' }, '')); card.lastChild.append(title, id, season);
 
     const result = el('div', { class: 'sk-result' });
@@ -184,52 +240,46 @@ function renderItem(it) {
 }
 
 function updateProgress(st) {
-    const p = document.getElementById('sk-progress');
     const btn = document.getElementById('sk-retry-all');
     if (st && st.running) {
-        p.style.display = ''; p.textContent = 'Retrying: ' + st.done + ' / ' + st.total + ' done, ' + st.ok + ' indexed';
+        showStatus('sk-progress', 'Retrying: ' + st.done + ' / ' + st.total + ' done, ' + st.ok + ' indexed');
         btn.disabled = true;
         watching.retry = true;
         if (!pollTimer) pollTimer = setInterval(load, 3000);
     } else {
         btn.disabled = false;
         if (pollTimer && !importRunning && !removeRunning) { clearInterval(pollTimer); pollTimer = null; }
-        if (watching.retry && st && st.total) { p.style.display = ''; p.textContent = 'Retry all finished: ' + st.ok + ' of ' + st.total + ' indexed.'; }
+        if (watching.retry && st && st.total) showStatus('sk-progress', 'Retry all finished: ' + st.ok + ' of ' + st.total + ' indexed.');
     }
 }
 
 function updateImport(st) {
     importRunning = !!(st && st.running);
-    const p = document.getElementById('sk-import-status');
     const btn = document.getElementById('sk-import');
     if (st && st.running) {
-        p.style.display = ''; p.textContent = 'Importing: scanned ' + st.scanned + ' ids, ' + st.added + ' added';
+        showStatus('sk-import-status', 'Importing: scanned ' + st.scanned + ' ids, ' + st.added + ' added');
         btn.disabled = true;
         watching.import = true;
         if (!pollTimer) pollTimer = setInterval(load, 3000);
     } else {
         btn.disabled = false;
         if (!watching.import || !st) return;
-        p.style.display = '';
-        p.textContent = st.error ? 'Import failed: ' + st.error : 'Import finished: ' + st.added + ' added of ' + st.found + ' files found.';
+        showStatus('sk-import-status', st.error ? 'Import failed: ' + st.error : 'Import finished: ' + st.added + ' added of ' + st.found + ' files found.', !!st.error);
     }
 }
 
 function updateRemove(st) {
     removeRunning = !!(st && st.running);
-    const p = document.getElementById('sk-remove-status');
     const btn = document.getElementById('sk-remove-all');
     btn.disabled = removeRunning;
     if (removeRunning) {
-        p.style.display = ''; p.textContent = 'Removing skipped files and deleting their copies from the skip channel…';
+        showStatus('sk-remove-status', 'Removing skipped files and deleting their copies from the skip channel…');
         watching.remove = true;
         if (!pollTimer) pollTimer = setInterval(load, 3000);
     } else if (watching.remove && st && (st.records || st.failed)) {
-        p.style.display = '';
-        p.style.color = st.failed ? 'var(--danger, #ef4444)' : '';
-        p.textContent = 'Removed ' + st.records + ' record(s); deleted ' + st.messages + ' message(s) from the skip channel.'
+        showStatus('sk-remove-status', 'Removed ' + (st.records || 0) + ' record(s); deleted ' + (st.messages || 0) + ' message(s) from the skip channel.'
             + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '')
-            + (st.failed ? ' ' + st.failed + ' could not be deleted and were moved to Ignored. (' + st.error + ')' : '');
+            + (st.failed ? ' ' + st.failed + ' could not be deleted and were moved to Ignored. (' + st.error + ')' : ''), !!st.failed);
     }
 }
 
@@ -248,8 +298,7 @@ async function ignoreAll() {
     if (!confirm('Ignore all ' + total + ' pending files? They move to the Ignored tab and will not come back on the next import.')) return;
     try {
         const r = await post('/api/admin/skipped/ignore-all');
-        const p = document.getElementById('sk-remove-status');
-        p.style.display = ''; p.style.color = ''; p.textContent = 'Ignored ' + r.ignored + ' file(s).';
+        showStatus('sk-remove-status', 'Ignored ' + r.ignored + ' file(s).');
         load();
     } catch (e) { alert(e.message); }
 }

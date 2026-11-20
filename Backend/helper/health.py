@@ -4,6 +4,7 @@ from datetime import datetime
 
 import httpx
 
+import Backend.pyrofork.bot as botmod
 from Backend import db
 from Backend.helper.metadata import get_tmdb_client, tmdb_api_key
 from Backend.helper.settings_manager import SettingsManager
@@ -20,7 +21,7 @@ _FREE_TIER_BYTES = 512 * 1024 * 1024
 
 #----- Cache TTLs (seconds) so the panel can poll often without hammering DB/TMDB.
 #----- Bot clients are always computed fresh (in-memory) for realtime load.
-_TTL = {"databases": 30, "tmdb": 300, "base_url": 60}
+_TTL = {"databases": 30, "tmdb": 300, "base_url": 60, "userbot": 300}
 _cache: dict = {}
 
 
@@ -104,13 +105,58 @@ async def _check_base_url() -> dict:
         return {"key": "base_url", "label": "Base URL", "status": "error", "message": str(e)[:140], "url": base}
 
 
+def _chat_ref(channel: str):
+    c = str(channel).strip().replace("-100", "", 1)
+    return int(f"-100{c}") if c.isdigit() else channel
+
+
+#----- The Userbot deletes what bots cannot (messages older than 48 hours): is it logged in, and may it delete in each channel
+async def _check_userbot() -> dict:
+    from Backend.helper.task_manager import ensure_peer
+    ub = botmod.Userbot
+    base = {"key": "userbot", "label": "Userbot"}
+    if ub is None:
+        return {**base, "status": "not_configured",
+                "message": "Not logged in. Bots cannot delete messages older than 48 hours. Log in under Settings, Telegram Userbot."}
+    me = getattr(ub, "me", None)
+    who = f"@{me.username}" if me and me.username else (getattr(me, "first_name", "") or "the account")
+    if not getattr(ub, "is_connected", False):
+        return {**base, "status": "error", "message": f"Logged in as {who} but disconnected. Restart the server."}
+
+    settings = SettingsManager.current()
+    titles = settings.to_dict().get("channel_titles") or {}
+    items = []
+    for channel in sorted(SettingsManager._all_channel_ids(settings.to_dict())):
+        name = titles.get(channel) or titles.get(str(channel).replace("-100", "", 1)) or channel
+        entry = {"name": name, "can_delete": False, "message": ""}
+        try:
+            ref = _chat_ref(channel)
+            if isinstance(ref, int) and not await ensure_peer(ub, ref):
+                entry["message"] = "not a member"
+            else:
+                m = await asyncio.wait_for(ub.get_chat_member(ref, "me"), timeout=8)
+                entry["can_delete"] = bool(getattr(getattr(m, "privileges", None), "can_delete_messages", False))
+                entry["message"] = "can delete" if entry["can_delete"] else "no Delete messages right"
+        except Exception as e:
+            entry["message"] = str(e)[:80]
+        items.append(entry)
+
+    ok = sum(1 for i in items if i["can_delete"])
+    status = "ok" if ok == len(items) else ("degraded" if ok else "error")
+    return {**base, "status": status, "message": f"Logged in as {who}. Can delete in {ok} of {len(items)} channels.",
+            "up": ok, "total": len(items), "items": items}
+
+
 async def run_health_checks(force: bool = False) -> dict:
     databases = await _cached("databases", _check_databases, force)
     bots = _check_bots()
     tmdb = await _cached("tmdb", _check_tmdb, force)
     base_url = await _cached("base_url", _check_base_url, force)
+    userbot = await _cached("userbot", _check_userbot, force)
 
     statuses = [databases["status"], bots["status"], tmdb["status"], base_url["status"]]
+    if userbot["status"] != "not_configured":   # optional: only a logged-in Userbot that cannot delete is a problem
+        statuses.append(userbot["status"])
     if "down" in (databases["status"], bots["status"]):
         overall = "critical"
     elif any(s in ("down", "degraded", "error", "not_configured") for s in statuses):
@@ -121,5 +167,5 @@ async def run_health_checks(force: bool = False) -> dict:
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "overall": overall,
-        "sections": [databases, bots, tmdb, base_url],
+        "sections": [databases, bots, tmdb, base_url, userbot],
     }

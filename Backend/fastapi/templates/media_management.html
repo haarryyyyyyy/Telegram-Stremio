@@ -245,7 +245,7 @@
         const isSplit = qs.some(q => q.group_key || (q.parts && q.parts.length));
         const labels = allQualityLabels(qs);
         const pills = labels.slice(0, 2).map(l => `<span class="q-chip">${l}</span>`).join('');
-        return `<div class="absolute left-2 bottom-2 flex gap-1">${pills}${isSplit ? '<span class="q-chip" title="Split file"><i class="fa-solid fa-puzzle-piece"></i></span>' : ''}</div>`;
+        return `<div class="absolute left-2 right-2 bottom-2 flex flex-wrap gap-1">${pills}${isSplit ? '<span class="q-chip" title="Uploaded in parts; joined when played"><i class="fa-solid fa-puzzle-piece" aria-hidden="true"></i> Split</span>' : ''}</div>`;
     }
 
     function thumb(url) {
@@ -965,7 +965,7 @@
     .m-rating, .m-custom, .q-chip { position: absolute; z-index: 2; padding: 2px 7px; border-radius: 99px; font-size: .72rem; line-height: 1.4; color: #fff; background: rgba(0,0,0,.72); }
     .m-rating { top: 6px; right: 6px; font-size: .66rem; padding: 1px 6px; }
     .m-custom { bottom: 6px; right: 6px; background: var(--primary); color: var(--on-primary); }
-    .q-chip { position: static; font-size: .62rem; padding: 1px 6px; }
+    .q-chip { position: static; font-size: .62rem; padding: 1px 6px; white-space: nowrap; }
     .m-poster > div { z-index: 2; }
 </style>
 {% endblock %}
