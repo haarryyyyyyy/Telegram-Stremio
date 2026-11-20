@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from typing import Optional
 
+import os
+
 from themoviedb import aioTMDb
+from themoviedb.routes_async._base import Base as _TMDBRoutes
+
+#----- api.tmdb.org is TMDB's official alias for api.themoviedb.org. Some networks (several Indian ISPs and
+#----- clouds) cannot reach themoviedb.org, so every lookup failed and files fell through to "no match".
+_TMDBRoutes.TMDB_URL = os.getenv("TMDB_API_HOST", "https://api.tmdb.org").rstrip("/")
 
 from Backend.config import Telegram
 from Backend.helper.metadata.common import (

@@ -313,7 +313,10 @@ def analyze_metadata_failure(filename: str, has_quality: bool = False) -> str:
     if not title:
         return "No title could be detected. Rename or caption the file with a clear title."
 
+    kind = "series" if (season or episode or combined) else "movie"
+    year = parsed.get("year")
     return (
-        "Could not match this title on the configured providers. Fix the title/year in the "
-        "caption, or add an IMDb link/id (tt...) or a TMDB link/id, then forward it again."
+        f"Searched {'TVDB, IMDb and TMDB' if kind == 'series' else 'TMDB and IMDb'} for '{title}'{f' ({year})' if year else ''} as a {kind} and found no "
+        "match. If that title or year is wrong, retry with the right title, or add an IMDb id (tt...) "
+        "or a TMDB link/id."
     )

@@ -89,3 +89,15 @@ async def test_translated_titles_match_the_same_film(monkeypatch, query):
         return types.SimpleNamespace(id=id_, title=title, original_title=title, release_date=types.SimpleNamespace(year=year))
     best = await tmdb.pick_best([movie(470880, "Aval", 2017), movie(1, "Someone Else", 2017)], query, 2017, "movie")
     assert best is not None and best.id == 470880
+
+
+def test_no_match_reason_says_what_was_searched():
+    from Backend.helper.metadata.parse import analyze_metadata_failure
+    reason = analyze_metadata_failure("Gruham (2017) Telugu 1080p.mkv")
+    assert "'Gruham'" in reason and "2017" in reason and "movie" in reason
+
+
+def test_tmdb_requests_go_to_the_alias_host_that_works_where_themoviedb_org_is_blocked():
+    from Backend.helper.metadata.providers import tmdb  # noqa: F401  (setting applied on import)
+    from themoviedb.routes_async._base import Base
+    assert Base.TMDB_URL == "https://api.tmdb.org"
