@@ -846,56 +846,7 @@
         </p>
     </div>
 
-    <div class="settings-card" id="contributors-card">
-        <div class="flex items-center justify-between flex-wrap gap-2" style="margin-bottom:.35rem">
-            <h2 style="margin-bottom:0"><i class="fa-solid fa-people-group"></i> Contributors</h2>
-            <a href="https://github.com/weebzone/Telegram-Stremio/graphs/contributors" target="_blank" rel="noopener" class="text-sm" style="color:var(--primary)">View on GitHub <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></a>
-        </div>
-        <p class="hint" style="margin-bottom:1rem">The people who build Telegram Stremio. Updated live from GitHub.</p>
-        <div id="contributors" class="contrib-grid" aria-live="polite">
-            <div class="contrib-skel"></div><div class="contrib-skel"></div><div class="contrib-skel"></div>
-        </div>
-    </div>
-
 </div><!-- /settings-root -->
-
-<style>
-.contrib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: .6rem; }
-.contrib { display: flex; align-items: center; gap: .7rem; padding: .6rem .75rem; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); color: var(--text); text-decoration: none; min-width: 0; transition: border-color .15s var(--ease), transform .15s var(--ease); }
-.contrib:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); transform: translateY(-1px); }
-.contrib img { width: 36px; height: 36px; border-radius: 99px; flex-shrink: 0; background: var(--card-high); }
-.contrib b { display: block; font-weight: 500; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.contrib small { color: var(--text-sec); font-size: .78rem; }
-.contrib-skel { height: 58px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: linear-gradient(90deg, var(--bg) 25%, var(--card-high) 37%, var(--bg) 63%); background-size: 400% 100%; animation: contrib-sh 1.4s ease infinite; }
-@keyframes contrib-sh { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
-</style>
-<script>
-document.addEventListener('DOMContentLoaded', async function contributors() {
-    const box = document.getElementById('contributors');
-    if (!box) return;
-    const KEY = 'tgs-contributors', TTL = 6 * 3600 * 1000;
-    const render = list => {
-        box.innerHTML = list.length ? list.map(c => `
-            <a class="contrib" href="${escapeHtml(c.html_url)}" target="_blank" rel="noopener">
-                <img src="${escapeHtml(c.avatar_url)}&s=72" alt="" loading="lazy" width="36" height="36">
-                <span class="min-w-0"><b>${escapeHtml(c.login)}</b><small>${c.contributions} commit${c.contributions === 1 ? '' : 's'}</small></span>
-            </a>`).join('') : '<p class="hint">No contributors to show yet.</p>';
-    };
-    let cached = null;
-    try { cached = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-    if (cached?.list) render(cached.list);
-    if (cached && Date.now() - cached.at < TTL) return;
-    try {
-        const res = await fetch('https://api.github.com/repos/weebzone/Telegram-Stremio/contributors?per_page=100', { headers: { Accept: 'application/vnd.github+json' } });
-        if (!res.ok) throw new Error(res.status);
-        const list = (await res.json()).filter(c => c.type !== 'Bot').map(({ login, avatar_url, html_url, contributions }) => ({ login, avatar_url, html_url, contributions }));
-        render(list);
-        try { localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), list })); } catch (e) {}
-    } catch (e) {
-        if (!cached?.list) box.innerHTML = '<p class="hint">GitHub could not be reached right now. <a href="https://github.com/weebzone/Telegram-Stremio/graphs/contributors" target="_blank" rel="noopener" style="color:var(--primary)">See the list on GitHub</a>.</p>';
-    }
-});
-</script>
 
 <!-- ── Restart overlay ──────────────────────────────────────────────────── -->
 <div id="restart-overlay" class="rs-overlay" role="alertdialog" aria-modal="true" aria-labelledby="rs-title" aria-describedby="restart-overlay-msg" hidden>
