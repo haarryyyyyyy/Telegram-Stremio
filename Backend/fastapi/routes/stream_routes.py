@@ -17,7 +17,7 @@ from Backend.fastapi.security.credentials import require_auth
 from Backend.fastapi.security.tokens import verify_token
 from Backend.helper.bounded import BoundedDict
 from Backend.helper.analytics import client_ip_from, record_stream_start
-from Backend.helper import client_health
+from Backend.helper import chunk_cache, client_health
 from Backend.helper.custom_dl import ACTIVE_STREAMS, RECENT_STREAMS, ByteStreamer
 from Backend.helper.encrypt import decode_string
 from Backend.helper.pyro import get_thumb_download_target
@@ -144,6 +144,39 @@ def _get_streamer(tg_client, index: int) -> ByteStreamer:
 def warm_streamers() -> None:
     for index, client in list(multi_clients.items()):
         _get_streamer(client, index)
+
+
+#----- Fetch the first MB of a file into the disk cache when its stream list opens, so Play starts without a
+#----- Telegram round trip. Runs through the normal streamer, so it shows as a short stream by the same viewer.
+WARM_TOP = 2                      # streams warmed per list: the ones a viewer most likely picks
+_warmed = BoundedDict(2000)       # stream id -> time warmed; Stremio asks for the same list several times
+
+
+async def warm_first_chunk(stream_id_hash: str, user_name: str = None) -> None:
+    if chunk_cache.LIMIT_BYTES <= 0 or time.time() - _warmed.get(stream_id_hash, 0) < 3600:
+        return
+    _warmed[stream_id_hash] = time.time()
+    try:
+        decoded = await decode_string(stream_id_hash)
+        if "parts" in decoded or not decoded.get("msg_id"):
+            return                # split files are joined from several messages; only single files are warmed
+        chat_id, msg_id = int(f"-100{decoded['chat_id']}"), int(decoded["msg_id"])
+        index, streamer, file_id = await _db_client(lambda s: s.get_file_properties(chat_id=chat_id, message_id=msg_id))
+        chunk_size = 1024 * 1024
+        if chunk_cache.has(getattr(file_id, "unique_id", None), 0, chunk_size):
+            return
+        end = min(file_id.file_size, chunk_size) - 1
+        offset, first_cut, last_cut, part_count = part_math(0, end, chunk_size)
+        body = await streamer.prefetch_stream(
+            file_id=file_id, client_index=index, offset=offset, first_part_cut=first_cut, last_part_cut=last_cut,
+            part_count=part_count, chunk_size=chunk_size, prefetch=1, parallelism=1,
+            meta={"title": await _lookup_title(stream_id_hash, ""), "user_name": user_name or "Unknown", "internal": True},
+            chat_id=chat_id, message_id=msg_id,
+        )
+        async for _ in body:
+            pass
+    except Exception as e:
+        LOGGER.debug(f"[Warm] Skipped {stream_id_hash[:12]}: {e}")
 
 
 def _prefetch_for(index: int) -> tuple[int, int]:

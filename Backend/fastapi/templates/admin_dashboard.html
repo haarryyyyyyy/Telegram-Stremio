@@ -702,7 +702,8 @@
             ldTile('streams', n.streams == null ? '—' : String(n.streams), n.bot_load == null ? '' : 'Bot load ' + n.bot_load, '', col('streams'), peak('streams', 4));
             const freePct = f.disk_total ? 100 * f.disk_free / f.disk_total : null;
             ldTile('disk', f.disk_free == null ? '—' : fmtBytes(f.disk_free) + ' free',
-                   f.cache_limit ? 'Chunk cache ' + fmtBytes(f.cache_bytes || 0) + ' of ' + fmtBytes(f.cache_limit) : '',
+                   f.cache_limit ? 'Chunk cache ' + fmtBytes(f.cache_bytes || 0) + ' of ' + fmtBytes(f.cache_limit)
+                       + (f.cache_hits + f.cache_misses ? ' · ' + Math.round(100 * f.cache_hits / (f.cache_hits + f.cache_misses)) + '% from cache' : '') : '',
                    freePct == null ? '' : freePct < 5 ? 'high' : freePct < 15 ? 'busy' : '');
             document.getElementById('ld-state').textContent = 'live';
         } catch (e) {

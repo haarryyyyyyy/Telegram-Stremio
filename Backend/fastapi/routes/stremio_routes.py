@@ -2002,6 +2002,7 @@ async def get_streams(
                         if label.lower() not in name.lower():
                             name = f"{name} {label}"
                     streams.append({"name": f"{name} {suffix}".strip(), "title": title, "url": url, "size_bytes": size_bytes,
+                                    "qid": None if cf_only else quality.get("id"),
                                     "episode_start": episode_start, "name_key": name_key, "sort_name": sort_name,
                                     "behaviorHints": {"bingeGroup": _binge_group(quality_str, suffix)},
                                     "badges": badge_images(filename, SettingsManager.current().base_url)})
@@ -2040,6 +2041,12 @@ async def get_streams(
         if name_count[s["name"]] > 1 and SettingsManager.current().stream_formatter == "default":
             seen[s["name"]] = seen.get(s["name"], 0) + 1
             s["name"] = f"{s['name']} ({seen[s['name']]})"
+
+    #----- Start loading the first MB of the top choices now, so pressing Play starts from the disk cache
+    from Backend.fastapi.routes.stream_routes import WARM_TOP, warm_first_chunk
+    qids = [q for q in dict.fromkeys(s.pop("qid", None) for s in streams) if q][:WARM_TOP]
+    for qid in qids:
+        asyncio.create_task(warm_first_chunk(qid, token_data.get("name") if token_data else None))
     return {"streams": streams}
 
 #----- Configure/install landing page rendered as HTML for a token

@@ -147,7 +147,9 @@ def _slow_facts() -> dict:
 
 
 def snapshot() -> dict:
+    from Backend.helper.chunk_cache import stats
     facts = {k: v for k, v in _slow_facts().items() if k != "at"}
+    facts.update(cache_hits=stats["hits"], cache_misses=stats["misses"])
     return {"every": SAMPLE_EVERY, "now": history[-1] if history else None, "facts": facts, "history": list(history)}
 
 
