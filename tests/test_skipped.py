@@ -90,3 +90,25 @@ async def test_failed_retry_keeps_the_record_and_updates_reason(monkeypatch, fak
     monkeypatch.setattr(skipped_files, "metadata", none)
     r = await skipped_files.retry_skipped(_Client(_doc_message()), "1234:77")
     assert r["ok"] is False and fake_db["set"]["attempts"] == 1 and "insert" not in fake_db
+
+
+from Backend.helper.manual_add import quality_hint
+
+
+def test_quality_comes_from_the_file_name_when_the_caption_has_none():
+    m = _msg(file_name="Aval.2017.Tamil.1080p.WEB-DL.mkv", caption="Aval (2017) Tamil")
+    assert quality_hint(m) == "1080p"
+
+
+def test_quality_comes_from_the_caption_when_the_file_name_has_none():
+    m = _msg(file_name="video_123.mkv", caption="Gruham (2017) Telugu 720p HDRip")
+    assert quality_hint(m) == "720p"
+
+
+def test_real_video_height_wins_over_names():
+    assert quality_hint(_msg(file_name="x 480p.mkv", height=1080)) == "1080p"
+
+
+def test_skip_reason_does_not_blame_resolution_when_the_file_name_has_one():
+    d = build_doc(_msg(file_name="Aval.2017.Tamil.1080p.WEB-DL.mkv", caption="Aval (2017) Tamil"))
+    assert "quality" not in d["reason"].lower() and "resolution" not in d["reason"].lower()

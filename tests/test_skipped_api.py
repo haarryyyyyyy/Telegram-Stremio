@@ -67,6 +67,7 @@ async def test_remove_all_deletes_skip_channel_copies_and_every_record(monkeypat
 
     async def delete_batch(chat_id, ids):
         deleted_messages.append((chat_id, sorted(ids)))
+        return []
 
     monkeypatch.setattr(Backend.db, "list_skipped_files", list_all)
     monkeypatch.setattr(Backend.db, "delete_skipped_files", delete_many, raising=False)
@@ -76,7 +77,7 @@ async def test_remove_all_deletes_skip_channel_copies_and_every_record(monkeypat
     result = await api_routes._remove_all_skipped_run()
     assert deleted_messages == [(-100999, [1, 2])]                 # only the skip channel is touched
     assert sorted(deleted_records) == ["555:7", "999:1", "999:2"]
-    assert result == {"records": 3, "messages": 2, "kept": 1}
+    assert result == {"records": 3, "messages": 2, "kept": 1, "failed": 0, "error": ""}
 
 
 async def test_remove_all_without_a_skip_channel_never_deletes_messages(monkeypatch):
@@ -90,6 +91,7 @@ async def test_remove_all_without_a_skip_channel_never_deletes_messages(monkeypa
 
     async def delete_batch(chat_id, ids):
         called.append(chat_id)
+        return []
 
     monkeypatch.setattr(Backend.db, "list_skipped_files", list_all)
     monkeypatch.setattr(Backend.db, "delete_skipped_files", delete_many, raising=False)
@@ -107,3 +109,27 @@ def test_remove_all_endpoint_needs_login():
 def test_page_has_a_remove_all_button_and_confirm(monkeypatch):
     r = _client().get("/admin/skipped")
     assert 'id="sk-remove-all"' in r.text and "/api/admin/skipped/remove-all" in r.text and "cannot be undone" in r.text
+
+
+async def test_remove_all_keeps_records_whose_message_could_not_be_deleted(monkeypatch):
+    docs = [{"_id": "999:1", "chat_id": "999", "msg_id": 1}, {"_id": "999:2", "chat_id": "999", "msg_id": 2}]
+    removed = []
+
+    async def list_all(status=None, page=1, per_page=50):
+        return {"total": 2, "items": docs}
+
+    async def delete_many(ids):
+        removed.extend(ids)
+        return len(ids)
+
+    async def delete_batch(chat_id, ids):
+        return [2]
+
+    monkeypatch.setattr(Backend.db, "list_skipped_files", list_all)
+    monkeypatch.setattr(Backend.db, "delete_skipped_files", delete_many, raising=False)
+    monkeypatch.setattr(api_routes, "delete_messages_batch", delete_batch)
+    monkeypatch.setattr(api_routes.task_manager, "last_delete_error", "MessageDeleteForbidden: no rights")
+    monkeypatch.setattr(api_routes, "SettingsManager", types.SimpleNamespace(current=lambda: types.SimpleNamespace(skip_channel="-100999")))
+    result = await api_routes._remove_all_skipped_run()
+    assert removed == ["999:1"]                              # 999:2 stays in the list so it can be retried
+    assert result["failed"] == 1 and "MessageDeleteForbidden" in result["error"]

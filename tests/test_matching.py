@@ -61,3 +61,31 @@ async def test_pick_best_chooses_endgame_over_secret_wars(monkeypatch):
 ])
 def test_resolution_after_a_channel_tag_is_not_glued_to_the_word_before(name):
     assert parse_media_name(clean_filename(name))["quality"] == "1080p"
+
+
+@pytest.mark.parametrize("query", ["Gruham", "The House Next Door", "Aval"])
+async def test_translated_titles_match_the_same_film(monkeypatch, query):
+    # TMDB has one entry for the bilingual film: English title "Aval", Telugu title "Gruham",
+    # Hindi title "The House Next Door" (translations, not alternative titles).
+    from Backend.helper.metadata.providers import tmdb
+
+    t = lambda title: types.SimpleNamespace(data=types.SimpleNamespace(title=title, name=None))
+
+    class Target:
+        def __init__(self, id_):
+            self.id_ = id_
+
+        async def alternative_titles(self):
+            return types.SimpleNamespace(titles=[], results=[])
+
+        async def translations(self):
+            names = ["Aval", "Gruham", "The House Next Door", None] if self.id_ == 470880 else ["Someone Else"]
+            return types.SimpleNamespace(translations=[t(n) for n in names])
+
+    monkeypatch.setattr(tmdb, "get_tmdb_client", lambda: types.SimpleNamespace(movie=Target, tv=Target))
+    tmdb.ALT_TITLES_CACHE.clear()
+
+    def movie(id_, title, year):
+        return types.SimpleNamespace(id=id_, title=title, original_title=title, release_date=types.SimpleNamespace(year=year))
+    best = await tmdb.pick_best([movie(470880, "Aval", 2017), movie(1, "Someone Else", 2017)], query, 2017, "movie")
+    assert best is not None and best.id == 470880

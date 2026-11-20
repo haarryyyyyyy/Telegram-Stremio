@@ -217,8 +217,12 @@ function updateRemove(st) {
     if (removeRunning) {
         p.style.display = ''; p.textContent = 'Removing skipped files and deleting their copies from the skip channel…';
         if (!pollTimer) pollTimer = setInterval(load, 3000);
-    } else if (st && st.records) {
-        p.style.display = ''; p.textContent = 'Removed ' + st.records + ' record(s); deleted ' + st.messages + ' message(s) from the skip channel.' + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '');
+    } else if (st && (st.records || st.failed)) {
+        p.style.display = '';
+        p.style.color = st.failed ? 'var(--danger, #ef4444)' : '';
+        p.textContent = 'Removed ' + st.records + ' record(s); deleted ' + st.messages + ' message(s) from the skip channel.'
+            + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '')
+            + (st.failed ? ' ' + st.failed + ' could not be deleted by any bot and are still listed (' + st.error + '). Make one bot an admin of the skip channel with "Delete messages", then try again.' : '');
     } else p.style.display = 'none';
 }
 

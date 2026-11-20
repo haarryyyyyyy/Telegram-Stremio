@@ -122,6 +122,18 @@ async def _tmdb_alternative_titles(media_type: str, tmdb_id) -> list:
             titles = [t for t in (getattr(e, "title", "") for e in entries) if t]
         except Exception as e:
             LOGGER.warning(f"TMDb alternative-titles fetch failed for {media_type} id={tmdb_id}: {e}")
+        #----- Release titles in other languages ("Gruham" in Telugu, "The House Next Door" in Hindi for the
+        #----- Tamil film "Aval") are translations, not alternative titles, so files named after them never matched.
+        try:
+            async with API_SEMAPHORE:
+                tr = await target.translations()
+            for item in getattr(tr, "translations", None) or []:
+                data = getattr(item, "data", None)
+                name = (getattr(data, "title", None) or getattr(data, "name", None)) if data else None
+                if name and name not in titles:
+                    titles.append(name)
+        except Exception as e:
+            LOGGER.warning(f"TMDb translations fetch failed for {media_type} id={tmdb_id}: {e}")
         return titles
 
     return await cached_call(ALT_TITLES_CACHE, cache_key, "alt_titles", _produce)

@@ -4,10 +4,10 @@ import time
 
 from Backend import db
 from Backend.helper.encrypt import encode_string
-from Backend.helper.manual_add import quality_from_height
+from Backend.helper.manual_add import quality_hint
 from Backend.helper.metadata import caption_with_links, extract_default_id, metadata
 from Backend.helper.metadata.entry import _is_anime_channel
-from Backend.helper.metadata.parse import analyze_metadata_failure, parse_media_name
+from Backend.helper.metadata.parse import analyze_metadata_failure
 from Backend.helper.pyro import apply_video_thumb_to_metadata, clean_filename, finalize_media_name, get_readable_file_size
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
@@ -31,7 +31,7 @@ def build_doc(message, reason: str = None, anime: bool = None) -> dict:
         "raw_size": getattr(media, "file_size", 0) or 0,
         "height": getattr(media, "height", 0) or 0,
         "anime": _is_anime_channel(chat_id) if anime is None else anime,
-        "reason": reason or analyze_metadata_failure(clean_filename(caption or file_name)),
+        "reason": reason or analyze_metadata_failure(clean_filename(caption or file_name), has_quality=bool(quality_hint(message))),
         "created_at": time.time(),
     }
 
@@ -75,12 +75,8 @@ async def retry_skipped(client, skipped_id: str, id_override: str = None, title:
     source = (title or "").strip() or original
     override = (id_override or "").strip() or extract_default_id(caption_with_links(message))
 
-    #----- Quality: real video height, else whatever the original name says, else a plain "HD" label
-    try:
-        name_quality = parse_media_name(clean_filename(original)).get("quality")
-    except Exception:
-        name_quality = None
-    fallback_quality = quality_from_height(getattr(media, "height", 0) or 0) or name_quality or "HD"
+    #----- Quality: real video height, else whichever of file name / caption has one, else a plain "HD" label
+    fallback_quality = quality_hint(message) or "HD"
 
     info = await metadata(
         clean_filename(source), channel, message.id,
@@ -90,7 +86,7 @@ async def retry_skipped(client, skipped_id: str, id_override: str = None, title:
         force_anime=bool(doc.get("anime")),
     )
     if info is None:
-        reason = analyze_metadata_failure(clean_filename(source))
+        reason = analyze_metadata_failure(clean_filename(source), has_quality=True)
         await db.set_skipped_file(skipped_id, reason=reason, attempts=(doc.get("attempts") or 0) + 1)
         return {"ok": False, "message": reason}
 

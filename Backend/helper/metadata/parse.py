@@ -268,7 +268,7 @@ def is_absolute_episode(parsed: dict, filename: str = "") -> bool:
         return True
     return extract_absolute_episode(filename, parsed) is not None
 
-def analyze_metadata_failure(filename: str) -> str:
+def analyze_metadata_failure(filename: str, has_quality: bool = False) -> str:
     if is_multipart_video(filename or ""):
         return (
             "Looks like a multi-part video split (e.g. part1 / cd1) that can't be "
@@ -305,7 +305,7 @@ def analyze_metadata_failure(filename: str) -> str:
             "Upload one season per file. Combined episode packs within a single season are fine "
             "when named like 'Show S02 E01-E05' or 'Show S02 Combined'."
         )
-    if not quality:
+    if not quality and not has_quality:
         return (
             "No video quality/resolution was found. Add one to the caption "
             "(e.g. 480p, 720p, 1080p or 2160p)."
