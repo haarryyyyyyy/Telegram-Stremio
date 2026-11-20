@@ -37,6 +37,10 @@ class Telegram:
     UPSTREAM_BRANCH               = getenv("UPSTREAM_BRANCH", "")
     ADMIN_USERNAME                = getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD                = getenv("ADMIN_PASSWORD", "admin")
+
+    #----- Optional user account (session string from scripts/make_user_session.py). Only used to delete
+    #----- skip-channel messages older than 48 hours, which Telegram never lets bots delete.
+    USER_SESSION_STRING           = getenv("USER_SESSION_STRING", "").strip()
     HTTP_PROXY_URL                = getenv("HTTP_Proxy_URL", "")
     SHOW_PROXY_AND_NON_PROXY_BOTH = getenv("SHOW_ProxyAndNonProxyBoth", "false").lower() == "true"
 

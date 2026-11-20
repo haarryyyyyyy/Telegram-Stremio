@@ -186,3 +186,38 @@ def test_ignore_all_endpoint_needs_login():
 def test_page_has_an_ignore_all_button():
     r = _client().get("/admin/skipped")
     assert 'id="sk-ignore-all"' in r.text and "/api/admin/skipped/ignore-all" in r.text
+
+
+async def test_delete_everything_only_touches_ignored_files(monkeypatch):
+    asked = []
+
+    async def list_files(status=None, page=1, per_page=50):
+        asked.append(status)
+        return {"total": 1, "items": [{"_id": "999:4", "chat_id": "999", "msg_id": 4}]}
+
+    async def delete_many(ids):
+        return len(ids)
+
+    async def delete_batch(chat_id, ids):
+        return []
+
+    async def ignore_ids(ids, reason):
+        return 0
+
+    monkeypatch.setattr(Backend.db, "list_skipped_files", list_files)
+    monkeypatch.setattr(Backend.db, "delete_skipped_files", delete_many, raising=False)
+    monkeypatch.setattr(Backend.db, "ignore_skipped_files", ignore_ids, raising=False)
+    monkeypatch.setattr(api_routes, "delete_messages_batch", delete_batch)
+    monkeypatch.setattr(api_routes, "SettingsManager", types.SimpleNamespace(current=lambda: types.SimpleNamespace(skip_channel="-100999")))
+    result = await api_routes._remove_all_skipped_run("ignored")
+    assert asked == ["ignored"] and result["records"] == 1 and result["messages"] == 1
+
+
+def test_delete_everything_endpoint_needs_login():
+    r = TestClient(app, follow_redirects=False).post("/api/admin/skipped/delete-ignored")
+    assert r.status_code in (302, 401)
+
+
+def test_page_has_a_delete_everything_button_for_the_ignored_tab():
+    r = _client().get("/admin/skipped")
+    assert 'id="sk-delete-ignored"' in r.text and "/api/admin/skipped/delete-ignored" in r.text

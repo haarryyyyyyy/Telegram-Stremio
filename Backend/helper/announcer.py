@@ -2,11 +2,12 @@ from asyncio import create_task
 from datetime import datetime
 
 from pyrogram.enums import ParseMode
-from pyrogram.errors import FloodWait, MessageDeleteForbidden, MessageIdInvalid
+from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from Backend import db
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.task_manager import delete_messages_batch
 from Backend.logger import LOGGER
 from Backend.pyrofork.bot import StreamBot, get_streambot_url
 
@@ -147,15 +148,9 @@ async def delete_announcement(media_type: str, tmdb_id) -> None:
     message_id = doc.get("message_id")
     if not chat_id or not message_id:
         return
-    try:
-        await StreamBot.delete_messages(chat_id, message_id)
+    #----- Shared delete: other bots, then the Userbot for messages older than 48 hours
+    if not await delete_messages_batch(chat_id, [message_id]):
         LOGGER.info(f"Deleted announcement message {message_id} for {key}")
-    except (MessageDeleteForbidden, MessageIdInvalid) as e:
-        LOGGER.warning(f"Could not delete announcement {message_id} for {key}: {e}")
-    except FloodWait as e:
-        LOGGER.warning(f"FloodWait deleting announcement for {key}: {e.value}s")
-    except Exception as e:
-        LOGGER.warning(f"Failed to delete announcement message for {key}: {e}")
 
 
 def delete_announcement_async(media_type: str, tmdb_id) -> None:

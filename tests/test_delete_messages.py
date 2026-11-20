@@ -83,3 +83,81 @@ async def test_a_bot_that_cannot_delete_anything_stops_after_three_tries(monkeyp
     failed = await task_manager.delete_messages_batch(-100999, list(range(1, 51)))
     batches = 50 // task_manager.DELETE_BATCH_SIZE
     assert failed == list(range(1, 51)) and len(bot.calls) == batches * (1 + 3)   # per batch: one try, three probes
+
+
+async def test_userbot_deletes_what_no_bot_may(monkeypatch):
+    from Backend.pyrofork import bot as botmod
+    main, user = Bot(allowed=[]), Bot(allowed=[1, 2, 3])
+    monkeypatch.setattr(task_manager, "StreamBot", main)
+    monkeypatch.setattr(task_manager, "multi_clients", {0: main})
+    monkeypatch.setattr(botmod, "Userbot", user)
+    monkeypatch.setattr(task_manager, "sleep", _no_sleep)
+
+    async def peer_ok(*_a):
+        return True
+    monkeypatch.setattr(task_manager, "ensure_peer", peer_ok)
+    assert await task_manager.delete_messages_batch(-100999, [1, 2, 3]) == []
+    assert user.calls == [[1, 2, 3]]
+
+
+async def test_without_a_userbot_old_messages_are_reported_as_failed(monkeypatch):
+    from Backend.pyrofork import bot as botmod
+    main = Bot(allowed=[])
+    monkeypatch.setattr(task_manager, "StreamBot", main)
+    monkeypatch.setattr(task_manager, "multi_clients", {0: main})
+    monkeypatch.setattr(botmod, "Userbot", None)
+    monkeypatch.setattr(task_manager, "sleep", _no_sleep)
+    assert await task_manager.delete_messages_batch(-100999, [7]) == [7]
+
+
+async def test_ensure_peer_finds_the_channel_in_dialogs_when_not_cached():
+    class Chat:
+        def __init__(self, i):
+            self.id = i
+
+    class User:
+        async def get_chat(self, chat_id):
+            raise ValueError("Peer id invalid")
+
+        async def get_dialogs(self):
+            for i in (-1001, -100999, -1002):
+                yield types.SimpleNamespace(chat=Chat(i))
+
+    assert await task_manager.ensure_peer(User(), -100999) is True
+    assert await task_manager.ensure_peer(User(), -100555) is False
+
+
+async def test_ensure_peer_scans_dialogs_once_for_a_chat_it_is_not_in(monkeypatch):
+    monkeypatch.setattr(task_manager, "_not_member", set())
+    scans = []
+
+    class User:
+        async def get_chat(self, chat_id):
+            raise ValueError("Peer id invalid")
+
+        async def get_dialogs(self):
+            scans.append(1)
+            return
+            yield
+
+    assert await task_manager.ensure_peer(User(), -100777) is False
+    assert await task_manager.ensure_peer(User(), -100777) is False
+    assert len(scans) == 1
+
+
+async def test_announcement_delete_uses_the_shared_fallback(monkeypatch):
+    from Backend.helper import announcer
+    calls = []
+
+    async def batch(chat_id, ids):
+        calls.append((chat_id, ids))
+        return []
+
+    class Coll:
+        async def find_one_and_delete(self, q):
+            return {"chat_id": -100555, "message_id": 42}
+
+    monkeypatch.setattr(announcer, "delete_messages_batch", batch)
+    monkeypatch.setattr(announcer.db, "dbs", {"tracking": {"announced": Coll()}}, raising=False)
+    await announcer.delete_announcement("movie", 1)
+    assert calls == [(-100555, [42])]
