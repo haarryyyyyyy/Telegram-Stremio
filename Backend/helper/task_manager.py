@@ -16,6 +16,7 @@ from pyrogram.errors import (
 from pyrogram.enums import ParseMode
 
 from Backend.logger import LOGGER
+import Backend.pyrofork.bot as botmod
 from Backend.pyrofork.bot import StreamBot, multi_clients
 
 DELETE_BATCH_SIZE = 10
@@ -89,6 +90,10 @@ async def delete_messages_batch(chat_id: int, msg_ids: List[int]) -> List[int]:
             if client is not StreamBot:
                 remaining = await _delete_with(client, f"Bot{idx}", chat_id, remaining)
 
+        #----- Bots can never delete messages older than 48 hours; a user account that is a channel admin can
+        if remaining and botmod.Userbot is not None and await ensure_peer(botmod.Userbot, chat_id):
+            remaining = await _delete_with(botmod.Userbot, "Userbot", chat_id, remaining)
+
         if remaining:
             LOGGER.error(f"Could not delete {len(remaining)} message(s) in {chat_id}: {last_delete_error}")
             failed += remaining
@@ -115,10 +120,28 @@ async def _delete_with(client, label: str, chat_id: int, msg_ids: List[int]) -> 
     return left
 
 
+#----- A user account started from a session string has no peer cache, so a numeric channel id is unknown
+#----- until it shows up in the account's dialogs. Returns False when the account is not in that chat.
+async def ensure_peer(client, chat_id: int) -> bool:
+    try:
+        await client.get_chat(chat_id)
+        return True
+    except Exception:
+        pass
+    try:
+        async for dialog in client.get_dialogs():
+            if dialog.chat.id == chat_id:
+                return True
+    except Exception as e:
+        LOGGER.warning(f"[Userbot] Could not load dialogs: {e}")
+    return False
+
+
 #----- One line per bot: is it an admin of the chat, and may it delete messages there
 async def delete_rights_report(chat_id: int) -> str:
     lines = []
-    for idx, client in list(multi_clients.items()):
+    clients = list(multi_clients.items()) + ([("userbot", botmod.Userbot)] if botmod.Userbot is not None else [])
+    for idx, client in clients:
         name = "@" + (getattr(getattr(client, "me", None), "username", None) or f"bot{idx}")
         try:
             m = await client.get_chat_member(chat_id, "me")

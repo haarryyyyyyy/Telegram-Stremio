@@ -14,6 +14,25 @@ StreamBot = Client(
     max_concurrent_transmissions=10
 )
 
+#----- Optional user account, built at boot from USER_SESSION_STRING; None when not configured
+Userbot = None
+
+
+def build_userbot(session_string: str) -> Client:
+    global Userbot
+    Userbot = Client(
+        name="userbot",
+        api_id=Telegram.API_ID,
+        api_hash=Telegram.API_HASH,
+        session_string=session_string,
+        in_memory=True,
+        no_updates=True,
+        workers=1,
+        sleep_threshold=60,
+    )
+    return Userbot
+
+
 #----- Shared multi-client registries
 multi_clients = {}
 work_loads = {}
