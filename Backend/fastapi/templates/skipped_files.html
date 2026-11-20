@@ -56,6 +56,7 @@
             <button class="sk-tab active" data-status="pending" onclick="setStatus('pending')">Pending</button>
             <button class="sk-tab" data-status="ignored" onclick="setStatus('ignored')">Ignored</button>
             <button class="sk-tab" data-status="missing" onclick="setStatus('missing')">Missing</button>
+            <button class="sk-btn danger" id="sk-delete-ignored" onclick="deleteIgnored()" style="margin-left:auto;display:none">Delete everything</button>
         </div>
         <p id="sk-progress" class="sk-meta" style="margin-top:.6rem;display:none"></p>
         <p id="sk-import-status" class="sk-meta" style="margin-top:.3rem;display:none"></p>
@@ -107,6 +108,7 @@ function post(url, body) {
 function setStatus(s) {
     status = s; page = 1;
     document.querySelectorAll('.sk-tab').forEach(t => t.classList.toggle('active', t.dataset.status === s));
+    document.getElementById('sk-delete-ignored').style.display = s === 'ignored' ? '' : 'none';
     load();
 }
 
@@ -229,6 +231,14 @@ function updateRemove(st) {
             + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '')
             + (st.failed ? ' ' + st.failed + ' could not be deleted and were moved to Ignored. (' + st.error + ')' : '');
     }
+}
+
+async function deleteIgnored() {
+    let total;
+    try { total = (await api('/api/admin/skipped?status=ignored')).total; } catch (e) { alert(e.message); return; }
+    if (!total) { alert('No ignored files.'); return; }
+    if (!confirm('Delete all ' + total + ' ignored files?\n\nTheir messages are deleted from the skip channel in Telegram and they leave this list. This cannot be undone.')) return;
+    try { watching.remove = true; await post('/api/admin/skipped/delete-ignored'); load(); } catch (e) { alert(e.message); }
 }
 
 async function ignoreAll() {

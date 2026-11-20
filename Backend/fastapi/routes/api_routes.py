@@ -2280,13 +2280,13 @@ async def import_skipped_api() -> dict:
 
 #----- Remove every skipped record and delete the skip-channel copies from Telegram.
 #----- Only messages inside the skip channel are deleted; a file still in a library channel is never touched.
-UNDELETABLE_REASON = ("Ignored: Telegram does not let bots delete messages older than 48 hours. "
-                      "Delete it from the skip channel by hand if you want it gone.")
+UNDELETABLE_REASON = ("Ignored: Telegram does not let bots delete messages older than 48 hours. Set "
+                      "USER_SESSION_STRING (an admin account of the skip channel) to delete it, or delete it by hand.")
 
 
-async def _remove_all_skipped_run() -> dict:
+async def _remove_all_skipped_run(status: str = None) -> dict:
     skip = str(SettingsManager.current().skip_channel or "").replace("-100", "").strip()
-    docs = (await db.list_skipped_files(None, 1, 100000))["items"]
+    docs = (await db.list_skipped_files(status, 1, 100000))["items"]
     in_skip = [int(d["msg_id"]) for d in docs if skip and str(d.get("chat_id")) == skip]
     failed = set(await delete_messages_batch(int(f"-100{skip}"), in_skip) or []) if in_skip else set()
     undeletable = [d["_id"] for d in docs if skip and str(d.get("chat_id")) == skip and int(d["msg_id"]) in failed]
@@ -2301,7 +2301,7 @@ async def _remove_all_skipped_run() -> dict:
                      f"{await task_manager.delete_rights_report(int(f'-100{skip}'))}" if failed else ""}
 
 
-async def remove_all_skipped_api() -> dict:
+async def remove_all_skipped_api(status: str = None) -> dict:
     st = _skipped_remove_all
     if st["running"]:
         return {"status": "running", **st}
@@ -2309,7 +2309,7 @@ async def remove_all_skipped_api() -> dict:
 
     async def _run():
         try:
-            st.update(await _remove_all_skipped_run())
+            st.update(await _remove_all_skipped_run(status))
         except Exception as e:
             LOGGER.error(f"[Skipped] Remove all failed: {e}")
         finally:
@@ -2352,3 +2352,8 @@ async def nightly_retry_skipped() -> None:
 async def ignore_all_skipped_api() -> dict:
     count = await db.ignore_all_pending_skipped("Ignored with Ignore all.")
     return {"status": "success", "ignored": count}
+
+
+#----- Ignored tab: delete those files' messages from the skip channel and drop them from the list
+async def delete_ignored_skipped_api() -> dict:
+    return await remove_all_skipped_api("ignored")
