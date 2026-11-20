@@ -13,7 +13,6 @@ from Backend.helper.pyro import apply_video_thumb_to_metadata, clean_filename, f
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
 
-_retry_lock = asyncio.Lock()
 import_state = {"running": False, "scanned": 0, "found": 0, "added": 0, "error": ""}
 
 
@@ -94,11 +93,10 @@ async def retry_skipped(client, skipped_id: str, id_override: str = None, title:
     encoded = info.get("encoded_string") or await encode_string({"chat_id": channel, "msg_id": message.id})
     await apply_video_thumb_to_metadata(info, message, encoded, client)
     name = finalize_media_name(source, bool(info.get("group_key")))
-    async with _retry_lock:
-        done = await db.insert_media(
-            info, channel=channel, msg_id=message.id,
-            size=get_readable_file_size(media.file_size), raw_size=media.file_size, name=name,
-        )
+    done = await db.insert_media(
+        info, channel=channel, msg_id=message.id,
+        size=get_readable_file_size(media.file_size), raw_size=media.file_size, name=name,
+    )
     if not done:
         return {"ok": False, "message": "The database rejected the entry (validation or duplicate)."}
 
