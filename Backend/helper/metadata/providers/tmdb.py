@@ -13,24 +13,7 @@ from themoviedb.routes_async._base import Base as _TMDBRoutes
 _TMDBRoutes.TMDB_URL = os.getenv("TMDB_API_HOST", "https://api.tmdb.org").rstrip("/")
 
 from Backend.config import Telegram
-from Backend.helper.metadata.common import (
-    ensure_media_ids,
-    logo_from_imdb,
-    parse_year_range,
-    ALT_TITLE_LOOKUPS,
-    ALT_TITLES_CACHE,
-    API_SEMAPHORE,
-    EPISODE_CACHE,
-    STRONG_MATCH,
-    TMDB_DETAILS_CACHE,
-    TMDB_SEARCH_CACHE,
-    TMDB_THRESHOLD,
-    cached_call,
-    format_runtime,
-    format_tmdb_image,
-    score_candidate,
-    score_candidate_aliases,
-)
+from Backend.helper.metadata.common import ensure_media_ids, logo_from_imdb, parse_year_range, ALT_TITLE_LOOKUPS, ALT_TITLES_CACHE, API_SEMAPHORE, EPISODE_CACHE, STRONG_MATCH, TMDB_DETAILS_CACHE, TMDB_SEARCH_CACHE, TMDB_THRESHOLD, cached_call, format_runtime, format_tmdb_image, score_candidate_aliases
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
 

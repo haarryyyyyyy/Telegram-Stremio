@@ -7,7 +7,6 @@ It uses disk, not RAM, so it fits the 1 GB host; CHUNK_CACHE_MB caps it (0 turns
 import asyncio
 import os
 import re
-import time
 from pathlib import Path
 
 MB = 1024 * 1024

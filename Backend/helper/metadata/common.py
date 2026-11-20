@@ -4,13 +4,12 @@ from __future__ import annotations
 import asyncio
 import re
 from difflib import SequenceMatcher
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 from urllib.parse import quote
 
 from rapidfuzz import fuzz
 
 from Backend.helper.bounded import BoundedDict
-from Backend.logger import LOGGER
 
 # Match thresholds
 CINEMETA_THRESHOLD = 0.60

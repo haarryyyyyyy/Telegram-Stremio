@@ -8,8 +8,6 @@ from urllib.parse import quote, unquote
 import PTN
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import UserNotParticipant
 
 import httpx
 
@@ -23,7 +21,7 @@ from Backend.fastapi.security.tokens import verify_token
 from Backend.helper.cf_stream import cf_enabled, cf_stream_url
 from Backend.fastapi.themes import get_theme, theme_key
 from Backend.helper.fanart import fanart_artwork
-from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
+from Backend.helper.metadata.providers.cinemeta import get_detail
 from Backend.helper.metadata import resolve_cover_url, tmdb_api_key, get_tmdb_client, format_tmdb_image
 from Backend.helper.database import convert_objectid_to_str
 from Backend.helper.split_files import parse_combined_episodes, combined_name_key
@@ -32,7 +30,7 @@ from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.stream_formatter import format_stream
 from Backend.helper.subtitles import get_subtitles_for, stremio_subtitle_entries
 from Backend.logger import LOGGER
-from Backend.pyrofork.bot import StreamBot, get_streambot_url
+from Backend.pyrofork.bot import get_streambot_url
 
 router = APIRouter(prefix="/stremio", tags=["Stremio Addon"])
 templates = Jinja2Templates(directory="Backend/fastapi/templates")
@@ -880,8 +878,6 @@ async def build_nuvio_collection_data(token: str, collection_type: str = "full",
     hbo_series = get_cat_id("hbo", "auto_hbo", "series", strict=True)
     hulu_movie = get_cat_id("hulu", "auto_hulu", "movie", strict=True)
     hulu_series = get_cat_id("hulu", "auto_hulu", "series", strict=True)
-    mx_movie = get_cat_id("mx", "auto_mx_player", "movie", strict=True)
-    mx_series = get_cat_id("mx", "auto_mx_player", "series", strict=True)
     sony_movie = get_cat_id("sony", "auto_sonyliv", "movie", strict=True)
     sony_series = get_cat_id("sony", "auto_sonyliv", "series", strict=True)
     zee5_movie = get_cat_id("zee", "auto_zee5", "movie", strict=True)

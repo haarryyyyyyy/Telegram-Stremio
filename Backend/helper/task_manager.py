@@ -39,7 +39,7 @@ async def _resolve_peer(client, chat_id) -> bool:
     try:
         await client.get_chat(chat_id)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 

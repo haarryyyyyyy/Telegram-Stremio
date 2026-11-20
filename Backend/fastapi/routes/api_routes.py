@@ -1,6 +1,5 @@
 import asyncio
 import pytz
-import asyncio
 import json
 import os
 import random
@@ -11,9 +10,6 @@ from time import time
 
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
-from pyrogram.errors import FloodWait
-from pyrogram.types import ChatPrivileges
 
 import Backend
 from Backend import StartTime, __version__, db
@@ -60,7 +56,6 @@ from Backend.helper.subtitles import (
     resolve_subtitle_message,
 )
 from Backend.logger import LOGGER
-import Backend.pyrofork.bot as botmod
 from Backend.helper.announcer import delete_announcement_async
 from Backend.pyrofork.bot import (
     StreamBot,

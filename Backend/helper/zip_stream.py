@@ -85,7 +85,6 @@ def _parse_central_directory(tail, tail_base, zip_size):
     uncomp = _u32(b, o + 24)
     name_len = _u16(b, o + 28)
     extra_len = _u16(b, o + 30)
-    comment_len = _u16(b, o + 32)
     local_offset = _u32(b, o + 42)
     name = b[o + 46:o + 46 + name_len].decode("utf-8", "ignore")
     extra = b[o + 46 + name_len:o + 46 + name_len + extra_len]
