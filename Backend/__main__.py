@@ -10,7 +10,7 @@ from Backend import __version__, db
 from Backend.fastapi import server
 from Backend.fastapi.main import app
 from Backend.fastapi.routes.api_routes import nightly_retry_skipped
-from Backend.helper import client_health
+from Backend.helper import client_health, server_load
 from Backend.helper.link_checker import DeadLinkChecker
 from Backend.helper.pyro import restart_notification, setup_bot_commands
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
@@ -74,6 +74,7 @@ async def start_services():
         link_checker_task = DeadLinkChecker(db, app, check_interval_hours=24)
         loop.create_task(link_checker_task.start())
         loop.create_task(client_health.watchdog(multi_clients))  # reconnect bots stuck on a dead socket
+        loop.create_task(server_load.sampler())    # live CPU / memory / network for the Admin page
         loop.create_task(nightly_retry_skipped())  # 3 AM IST: retry skipped files, one per second
 
         LOGGER.info("Telegram-Stremio Started Successfully!")

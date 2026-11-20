@@ -216,6 +216,8 @@ def _build_stream_headers(mime_type, file_name, req_length, range_header, start,
 
 
 _thumb_cache = BoundedDict(200)
+#----- A split ZIP's layout never changes, so seeks reuse it instead of re-reading the index from Telegram
+_zip_entry_cache = BoundedDict(500)
 _THUMB_CACHE_TTL = 3600
 
 
@@ -448,12 +450,12 @@ async def virtual_media_streamer(request: Request, parts_payload: list, token: s
 
 
 #----- Read a byte range from the concatenated virtual parts into memory
-async def _read_virtual_range(parts, start, length, streamer, request, client_index, parallelism=1, prefetch_count=1):
+async def _read_virtual_range(parts, start, length, streamer, request, client_index, parallelism=1, prefetch_count=1, meta=None):
     buf = bytearray()
     gen = virtual_stream_generator(
         parts=parts, start=start, end=start + length - 1, chunk_size=1024 * 1024,
         streamer=streamer, client_index=client_index, request=request,
-        meta={"title": "zip-index", "user_name": "system", "token": ""},
+        meta={**(meta or {}), "internal": True},
         stream_id=secrets.token_hex(6), parallelism=parallelism, prefetch_count=prefetch_count,
     )
     try:
@@ -477,10 +479,21 @@ async def _zip_media_streamer(request, parts_payload, token, token_data, stream_
     if not parts or zip_size <= 0:
         raise HTTPException(status_code=404, detail="Split archive parts not accessible")
 
-    async def _read(off, length):
-        return await _read_virtual_range(parts, off, length, streamer, request, client_index, parallelism, prefetch_count)
+    path_name = unquote(request.path_params.get("name", "")) or "video.mkv"
+    title = await _lookup_title(stream_id_hash, path_name)
+    user_name = token_data.get("name", "Unknown") if token_data else "Unknown"
+    #----- The index read shows under the real title and viewer while it runs, never as a separate saved stream
+    index_meta = {"title": title, "file_name": path_name, "user_name": user_name, "token": token}
 
-    entry = await resolve_zip_entry(_read, zip_size)
+    async def _read(off, length):
+        return await _read_virtual_range(parts, off, length, streamer, request, client_index, parallelism, prefetch_count, index_meta)
+
+    cache_key = stream_id_hash or str(parts_payload)
+    entry = _zip_entry_cache.get(cache_key)
+    if entry is None:
+        entry = await resolve_zip_entry(_read, zip_size)
+        if entry:
+            _zip_entry_cache[cache_key] = entry
     if not entry:
         raise HTTPException(status_code=415, detail="Unreadable or incomplete split archive")
     if entry["method"] != 0:
@@ -504,9 +517,9 @@ async def _zip_media_streamer(request, parts_payload, token, token_data, stream_
     meta = {
         "request_path": str(request.url.path),
         "client_host": request.client.host if request.client else None,
-        "title": (await _lookup_title(stream_id_hash, inner_name)) or inner_name,
+        "title": title if title != path_name else inner_name,
         "file_name": inner_name,
-        "user_name": token_data.get("name", "Unknown") if token_data else "Unknown",
+        "user_name": user_name,
         "token": token,
         "zip_parts": len(parts),
     }

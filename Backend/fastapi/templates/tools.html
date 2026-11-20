@@ -358,7 +358,7 @@
         <!-- Dead links -->
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <label class="s-label" style="margin-bottom:0">Dead links found</label>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <button class="btn btn-ghost" type="button" onclick="loadFlaggedDeadLinks()">
                     <i class="fa-solid fa-rotate"></i> Load flagged
                 </button>
@@ -417,7 +417,7 @@
 
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <label class="s-label" style="margin-bottom:0">Duplicate groups</label>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <button class="btn btn-ghost" type="button" id="dup-selected-btn" onclick="purgeDuplicates(false)" disabled>
                     <i class="fa-solid fa-trash"></i> Delete selected
                 </button>
