@@ -285,7 +285,7 @@
 <script>
     let allTokens = [];
     let currentPage = 1;
-    let subEnabled = true;
+    let subEnabled = false;   // subscriptions were removed; kept so the expiry-only paths below stay unchanged
 
     function fmtDate(iso) {
         if (!iso) return '—';

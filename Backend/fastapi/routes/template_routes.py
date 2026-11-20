@@ -7,17 +7,14 @@ from fastapi.templating import Jinja2Templates
 
 from Backend import StartTime, __version__, db
 from Backend.helper import login_guard
-from Backend.config import Telegram
 from Backend.fastapi.security.credentials import get_current_user, is_authenticated, require_auth, revoke_session, verify_credentials
 from Backend.fastapi.themes import get_all_themes, get_theme, theme_key
-from Backend.helper.analytics import client_ip_from, get_activity_overview
-from Backend.helper.bounded import BoundedDict
+from Backend.helper.analytics import get_activity_overview
 from Backend.helper.custom_dl import ACTIVE_STREAMS, RECENT_STREAMS
 from Backend.helper.metadata import resolve_cover_url
 from Backend.helper.pyro import get_readable_time
 from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.stream_formatter import PRESETS
-import Backend.pyrofork.bot as botmod
 from Backend.pyrofork.bot import StreamBot, multi_clients, work_loads_summary
 
 templates = Jinja2Templates(directory="Backend/fastapi/templates")

@@ -17,7 +17,6 @@ from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan
 from Backend.helper.passwords import verify_password
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
-import Backend.pyrofork.bot as botmod
 from Backend.pyrofork.bot import StreamBot, multi_clients
 from Backend.pyrofork.clients import initialize_clients
 

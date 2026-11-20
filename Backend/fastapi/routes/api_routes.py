@@ -1,6 +1,5 @@
 import asyncio
 import pytz
-import asyncio
 import json
 import os
 import random
@@ -11,9 +10,6 @@ from time import time
 
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
-from pyrogram.errors import FloodWait
-from pyrogram.types import ChatPrivileges
 
 import Backend
 from Backend import StartTime, __version__, db
@@ -60,7 +56,6 @@ from Backend.helper.subtitles import (
     resolve_subtitle_message,
 )
 from Backend.logger import LOGGER
-import Backend.pyrofork.bot as botmod
 from Backend.helper.announcer import delete_announcement_async
 from Backend.pyrofork.bot import (
     StreamBot,
@@ -2294,7 +2289,9 @@ async def _remove_all_skipped_run() -> dict:
     gone = [d["_id"] for d in docs if not (skip and str(d.get("chat_id")) == skip and int(d["msg_id"]) in failed)]
     records = await db.delete_skipped_files(gone)
     return {"records": records, "messages": len(in_skip) - len(failed), "kept": len(docs) - len(in_skip),
-            "failed": len(failed), "error": task_manager.last_delete_error if failed else ""}
+            "failed": len(failed),
+            "error": f"{task_manager.last_delete_error}. Bot rights in the skip channel: "
+                     f"{await task_manager.delete_rights_report(int(f'-100{skip}'))}" if failed else ""}
 
 
 async def remove_all_skipped_api() -> dict:

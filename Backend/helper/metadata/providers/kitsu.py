@@ -245,7 +245,6 @@ def _common_payload(row: dict, doc: dict, title: str) -> dict:
 def _pick_english_text(*candidates, allow_fallback: bool = True) -> str:
     """Prefer English / latin-script text. Optionally fall back to any language."""
     import re
-    cjk = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]")
     latin = re.compile(r"[A-Za-z]")
     best_any = ""
     for raw in candidates:

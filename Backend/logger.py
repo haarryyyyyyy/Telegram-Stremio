@@ -1,6 +1,7 @@
 import time
 from datetime import datetime
-from logging import ERROR, INFO, FileHandler, Filter, Formatter, StreamHandler, basicConfig, getLogger
+from logging.handlers import RotatingFileHandler
+from logging import ERROR, INFO, Filter, Formatter, StreamHandler, basicConfig, getLogger
 
 import pytz
 
@@ -16,7 +17,7 @@ class ISTFormatter(Formatter):
 
 #----- Root logging configuration
 formatter = ISTFormatter("[%(asctime)s] [%(levelname)s] - %(message)s", "%d-%b-%y %I:%M:%S %p")
-file_handler = FileHandler("log.txt")
+file_handler = RotatingFileHandler("log.txt", maxBytes=5 * 1024 * 1024, backupCount=3)   # cap: 20 MB on disk
 stream_handler = StreamHandler()
 file_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)

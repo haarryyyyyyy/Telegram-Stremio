@@ -1,3 +1,4 @@
+import asyncio
 import re
 import secrets
 import string
@@ -1148,7 +1149,12 @@ class Database:
         channel: int, msg_id: int, size: str, name: str, raw_size: int = 0,
         status: Optional[dict] = None
     ) -> Optional[ObjectId]:
-        result = await self._insert_media(metadata_info, channel, msg_id, size, name, raw_size, status)
+        #----- One lock for every caller (upload, scan, manual add, Skipped retry): each reads a show, adds
+        #----- an episode and writes it back, so two at once could drop an episode.
+        if not hasattr(self, "_insert_lock"):
+            self._insert_lock = asyncio.Lock()
+        async with self._insert_lock:
+            result = await self._insert_media(metadata_info, channel, msg_id, size, name, raw_size, status)
         if result:
             try:
                 await self.delete_skipped_file(self.skipped_id(channel, msg_id))

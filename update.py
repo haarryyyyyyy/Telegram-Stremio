@@ -19,9 +19,6 @@ log_file = "log.txt"
 if ospath.exists(log_file):
     with open(log_file, "w") as f:
         f.truncate(0)
-if Path(".git").exists():
-    shutil.rmtree(".git")
-
 file_handler = FileHandler(log_file)
 stream_handler = StreamHandler()
 formatter = ISTFormatter("[%(asctime)s] [%(levelname)s] - %(message)s", "%d-%b-%y %I:%M:%S %p")
