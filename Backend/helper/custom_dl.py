@@ -227,6 +227,8 @@ class ByteStreamer:
             cacheable = bool(cache_uid) and chunk_cache.wanted(off, chunk_size, cache_size)
             if cacheable:
                 cached = await chunk_cache.get(cache_uid, off, chunk_size)
+                if not (meta or {}).get("internal"):          # warm-ups and ZIP index reads are not viewers
+                    chunk_cache.stats["hits" if cached else "misses"] += 1
                 if cached:
                     return seq_idx, cached
             tries = 0

@@ -18,6 +18,7 @@ TRIM_EVERY = 50          # writes between size checks
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")   # Telegram unique ids are base64url
 _puts = 0
+stats = {"hits": 0, "misses": 0}   # since boot, shown on the Admin page's Server load panel
 
 
 def wanted(offset: int, limit: int, file_size: int) -> bool:
@@ -61,6 +62,11 @@ def trim() -> None:
             total -= st.st_size
         except OSError:
             pass
+
+
+def has(uid: str, offset: int, limit: int) -> bool:
+    path = _path(uid, offset, limit)
+    return path is not None and path.exists()
 
 
 async def get(uid: str, offset: int, limit: int) -> bytes | None:
