@@ -1079,8 +1079,8 @@ uv run python scripts/migrate_combined.py --apply
 Telegram never lets bots delete channel messages older than 48 hours, even as admins. To let deletes reach those (Movies/Series tabs, **Remove all**, **Delete everything** on the Ignored tab, announcements), add a user account. It is only tried after every bot fails:
 
 1. Make the account an admin with "Delete messages" of the skip channel, your storage channels (deleting from the Movies/Series tabs) and the announcement channel. A separate account is safer.
-2. On the server run `uv run python scripts/make_user_session.py` and log in.
-3. Paste the printed `USER_SESSION_STRING="..."` line into `config.env` and restart.
+2. Dashboard → Settings → **Telegram Userbot**: enter the phone number, the code, and the 2FA password if asked. **Log out** there removes it again.
+3. Or run `uv run python scripts/make_user_session.py` on the server and paste the printed `USER_SESSION_STRING="..."` line into `config.env`. The config line wins at boot.
 
 The session string is full access to that account, so keep `config.env` private. The account is only used for deletes the bots cannot do.
 

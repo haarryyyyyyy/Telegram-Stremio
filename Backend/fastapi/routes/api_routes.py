@@ -42,6 +42,7 @@ from Backend.helper.metadata import (
 from Backend.helper.passwords import hash_password, verify_password
 from Backend.helper.pyro import get_readable_file_size, get_readable_time
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
+from Backend.helper.session_auth import get_session_status, logout, start_login, submit_code, submit_password
 from Backend.helper.settings_manager import SettingsManager
 from Backend.helper import task_manager
 from Backend.helper.task_manager import delete_messages_batch
@@ -1447,6 +1448,36 @@ async def get_user_activity_api(page: int = 1, per_page: int = 5):
         return await get_activity_overview(page, per_page)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+#----- Userbot login/logout from the Settings page
+async def _session_call(fn, *args):
+    try:
+        return await fn(*args)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def session_send_code_api(payload: dict):
+    return await _session_call(start_login, payload.get("phone"))
+
+
+async def session_verify_code_api(payload: dict):
+    return await _session_call(submit_code, payload.get("login_id"), payload.get("code"))
+
+
+async def session_verify_password_api(payload: dict):
+    return await _session_call(submit_password, payload.get("login_id"), payload.get("password"))
+
+
+async def session_status_api():
+    return await get_session_status()
+
+
+async def session_logout_api():
+    return await logout()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
