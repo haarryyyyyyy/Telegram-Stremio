@@ -27,6 +27,7 @@ from Backend.helper.virtual_dl import resolve_virtual_parts, virtual_stream_gene
 from Backend.helper.zip_stream import resolve_zip_entry
 from Backend.logger import LOGGER
 from Backend.pyrofork.bot import (
+    client_avg_mbps,
     client_dc_map,
     client_failures,
     multi_clients,
@@ -109,6 +110,10 @@ def select_best_client(target_dc: int, exclude=()) -> int:
         return 0
     min_score = min(_score(i) for i in matching)
     tied = sorted(i for i in matching if _score(i) == min_score)
+    #----- Among equally idle bots take the fastest measured one; while any of them has no speed yet,
+    #----- keep rotating so every bot gets measured.
+    if len(tied) > 1 and all(client_avg_mbps.get(i, 0) > 0 for i in tied):
+        return max(tied, key=lambda i: client_avg_mbps.get(i, 0))
     selected = tied[_rr_counter % len(tied)]
     _rr_counter = (_rr_counter + 1) % max(len(multi_clients), 1)
     return selected

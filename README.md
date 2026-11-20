@@ -1060,6 +1060,7 @@ Everyone who has contributed code, updated automatically:
   and add `/swapfile none swap sw 0 0` to `/etc/fstab`.
 - `docker-compose.yaml` caps the container at 850 MB. Raise `mem_limit` if you have more RAM.
 - Each bot opens Telegram media connections to 4 data centers at boot. Set `PREWARM_DCS="4,5"` (only the DCs your files live in) or `PREWARM_DCS="none"` in `config.env` to use less memory.
+- The first and last 4 MB of played files are cached on disk (`cache/chunks/`, 1 GB by default) so replays and seeks start instantly. Set `CHUNK_CACHE_MB` in `config.env` to change the size, or `0` to turn it off.
 - Leave `UPSTREAM_REPO` empty (and clear it in Settings) unless you want every boot to overwrite the code with that repository.
 
 ## Skipped files

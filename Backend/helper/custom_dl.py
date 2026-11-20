@@ -15,7 +15,7 @@ from pyrogram.file_id import FileId
 from pyrogram.session import Auth, Session
 
 from Backend import db
-from Backend.helper import client_health
+from Backend.helper import chunk_cache, client_health
 from Backend.helper.exceptions import FileNotFound
 from Backend.helper.pyro import get_file_ids
 from Backend.logger import LOGGER
@@ -219,7 +219,16 @@ class ByteStreamer:
                 except Exception as e:
                     LOGGER.warning("Skipping extra client %s (session setup failed): %s", ec_idx, e)
 
+        cache_uid = getattr(file_id, "unique_id", None)
+        cache_size = getattr(file_id, "file_size", 0) or 0
+
         async def fetch_chunk_with_retries(seq_idx: int, off: int) -> Tuple[int, Optional[bytes]]:
+            #----- Start/end chunks come from the disk cache when a player has read them before
+            cacheable = bool(cache_uid) and chunk_cache.wanted(off, chunk_size, cache_size)
+            if cacheable:
+                cached = await chunk_cache.get(cache_uid, off, chunk_size)
+                if cached:
+                    return seq_idx, cached
             tries = 0
             flood_tries = 0
             while tries < 3 and flood_tries < 5 and not stop_event.is_set():
@@ -241,6 +250,8 @@ class ByteStreamer:
                     if chunk_bytes == b"":
                         return seq_idx, None
 
+                    if cacheable and chunk_bytes:
+                        asyncio.create_task(chunk_cache.put(cache_uid, off, chunk_size, chunk_bytes))
                     return seq_idx, chunk_bytes
 
                 except asyncio.TimeoutError:

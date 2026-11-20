@@ -112,3 +112,34 @@ def test_real_video_height_wins_over_names():
 def test_skip_reason_does_not_blame_resolution_when_the_file_name_has_one():
     d = build_doc(_msg(file_name="Aval.2017.Tamil.1080p.WEB-DL.mkv", caption="Aval (2017) Tamil"))
     assert "quality" not in d["reason"].lower() and "resolution" not in d["reason"].lower()
+
+
+async def test_a_successful_fix_is_remembered_for_the_original_title(monkeypatch, fake_db):
+    remembered = []
+
+    async def fake_metadata(filename, channel, msg_id, **kw):
+        return {"title": "Aval", "media_type": "movie", "tmdb_id": 470880, "imdb_id": "tt6889474", "encoded_string": "x"}
+
+    async def remember(*args):
+        remembered.append(args)
+
+    monkeypatch.setattr(skipped_files, "metadata", fake_metadata)
+    monkeypatch.setattr(skipped_files.title_aliases, "remember", remember)
+    msg = _doc_message(file_name="Gruham (2017) Telugu 1080p.mkv")
+    r = await skipped_files.retry_skipped(_Client(msg), "1234:77", id_override="tt6889474")
+    assert r["ok"] and remembered == [("Gruham", 2017, "movie", "tt6889474", 470880)]
+
+
+async def test_a_plain_retry_without_admin_input_is_not_remembered(monkeypatch, fake_db):
+    remembered = []
+
+    async def fake_metadata(filename, channel, msg_id, **kw):
+        return {"title": "Aval", "media_type": "movie", "tmdb_id": 470880, "encoded_string": "x"}
+
+    async def remember(*args):
+        remembered.append(args)
+
+    monkeypatch.setattr(skipped_files, "metadata", fake_metadata)
+    monkeypatch.setattr(skipped_files.title_aliases, "remember", remember)
+    await skipped_files.retry_skipped(_Client(_doc_message(file_name="Aval (2017) 1080p.mkv")), "1234:77")
+    assert remembered == []
