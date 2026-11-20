@@ -1076,13 +1076,13 @@ uv run python scripts/migrate_combined.py --apply
 
 ## Deleting old skipped files
 
-Telegram never lets bots delete channel messages older than 48 hours, even as admins. To let **Remove all** and **Delete everything** (Ignored tab) clear those from the skip channel, add a user account:
+Telegram never lets bots delete channel messages older than 48 hours, even as admins. To let deletes reach those (Movies/Series tabs, **Remove all**, **Delete everything** on the Ignored tab, announcements), add a user account. It is only tried after every bot fails:
 
-1. Make the account an admin of the skip channel with "Delete messages". A separate account is safer.
+1. Make the account an admin with "Delete messages" of the skip channel, your storage channels (deleting from the Movies/Series tabs) and the announcement channel. A separate account is safer.
 2. On the server run `uv run python scripts/make_user_session.py` and log in.
 3. Paste the printed `USER_SESSION_STRING="..."` line into `config.env` and restart.
 
-The session string is full access to that account, so keep `config.env` private. The account is only used for these deletes.
+The session string is full access to that account, so keep `config.env` private. The account is only used for deletes the bots cannot do.
 
 ## Nuvio badges
 

@@ -122,7 +122,14 @@ async def _delete_with(client, label: str, chat_id: int, msg_ids: List[int]) -> 
 
 #----- A user account started from a session string has no peer cache, so a numeric channel id is unknown
 #----- until it shows up in the account's dialogs. Returns False when the account is not in that chat.
+#----- shortcut: chats the account is not in are remembered until restart, so deleting a whole series does
+#----- not scan every dialog once per file; restart after adding the account to a channel.
+_not_member: set = set()
+
+
 async def ensure_peer(client, chat_id: int) -> bool:
+    if chat_id in _not_member:
+        return False
     try:
         await client.get_chat(chat_id)
         return True
@@ -134,6 +141,8 @@ async def ensure_peer(client, chat_id: int) -> bool:
                 return True
     except Exception as e:
         LOGGER.warning(f"[Userbot] Could not load dialogs: {e}")
+        return False            # a network error is not proof of absence
+    _not_member.add(chat_id)
     return False
 
 

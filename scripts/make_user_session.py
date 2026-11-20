@@ -1,7 +1,7 @@
 """Log in a Telegram user account once and print its session string for USER_SESSION_STRING.
 
-The account must be an admin of the skip channel with "Delete messages". It is only used to delete
-skip-channel messages older than 48 hours, which Telegram never lets bots delete.
+The account must be an admin with "Delete messages" of the skip, storage and announcement channels.
+It is only used to delete messages older than 48 hours, which Telegram never lets bots delete.
 
 Run from the repo root on the server (it asks for the phone number, the login code and 2FA password):
     uv run python scripts/make_user_session.py

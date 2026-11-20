@@ -125,3 +125,39 @@ async def test_ensure_peer_finds_the_channel_in_dialogs_when_not_cached():
 
     assert await task_manager.ensure_peer(User(), -100999) is True
     assert await task_manager.ensure_peer(User(), -100555) is False
+
+
+async def test_ensure_peer_scans_dialogs_once_for_a_chat_it_is_not_in(monkeypatch):
+    monkeypatch.setattr(task_manager, "_not_member", set())
+    scans = []
+
+    class User:
+        async def get_chat(self, chat_id):
+            raise ValueError("Peer id invalid")
+
+        async def get_dialogs(self):
+            scans.append(1)
+            return
+            yield
+
+    assert await task_manager.ensure_peer(User(), -100777) is False
+    assert await task_manager.ensure_peer(User(), -100777) is False
+    assert len(scans) == 1
+
+
+async def test_announcement_delete_uses_the_shared_fallback(monkeypatch):
+    from Backend.helper import announcer
+    calls = []
+
+    async def batch(chat_id, ids):
+        calls.append((chat_id, ids))
+        return []
+
+    class Coll:
+        async def find_one_and_delete(self, q):
+            return {"chat_id": -100555, "message_id": 42}
+
+    monkeypatch.setattr(announcer, "delete_messages_batch", batch)
+    monkeypatch.setattr(announcer.db, "dbs", {"tracking": {"announced": Coll()}}, raising=False)
+    await announcer.delete_announcement("movie", 1)
+    assert calls == [(-100555, [42])]
