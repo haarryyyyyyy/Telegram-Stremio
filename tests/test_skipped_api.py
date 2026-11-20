@@ -133,3 +133,28 @@ async def test_remove_all_keeps_records_whose_message_could_not_be_deleted(monke
     result = await api_routes._remove_all_skipped_run()
     assert removed == ["999:1"]                              # 999:2 stays in the list so it can be retried
     assert result["failed"] == 1 and "MessageDeleteForbidden" in result["error"]
+
+
+from datetime import datetime
+
+
+def test_nightly_retry_waits_until_3am_ist():
+    ist = api_routes.IST
+    assert api_routes.seconds_until_hour(3, ist.localize(datetime(2026, 11, 20, 1, 0))) == 2 * 3600
+    assert api_routes.seconds_until_hour(3, ist.localize(datetime(2026, 11, 20, 3, 0))) == 24 * 3600   # just ran
+    assert api_routes.seconds_until_hour(3, ist.localize(datetime(2026, 11, 20, 23, 30))) == 3.5 * 3600
+
+
+async def test_nightly_retry_starts_retry_all_and_skips_when_already_running(monkeypatch):
+    started = []
+
+    async def fake_retry_all():
+        started.append(1)
+        return {"status": "started"}
+
+    monkeypatch.setattr(api_routes, "retry_all_skipped_api", fake_retry_all)
+    await api_routes.run_nightly_retry_once()
+    monkeypatch.setitem(api_routes._skipped_retry_all, "running", True)
+    await api_routes.run_nightly_retry_once()
+    monkeypatch.setitem(api_routes._skipped_retry_all, "running", False)
+    assert started == [1]

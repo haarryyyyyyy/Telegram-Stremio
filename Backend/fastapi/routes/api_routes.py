@@ -1,11 +1,12 @@
 import asyncio
+import pytz
 import asyncio
 import json
 import os
 import random
 import secrets
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import time
 
 from fastapi import HTTPException, Query, Request
@@ -2312,3 +2313,32 @@ async def remove_all_skipped_api() -> dict:
 
     asyncio.create_task(_run())
     return {"status": "started", **st}
+
+
+#----- Nightly retry of skipped files: providers add titles over time, so yesterday's misses may match today.
+#----- One file per second at 3 AM IST keeps it light on the 1 GB host and on the metadata APIs.
+NIGHTLY_RETRY_HOUR = 3
+IST = pytz.timezone("Asia/Kolkata")
+
+
+def seconds_until_hour(hour: int, now: datetime) -> float:
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+async def run_nightly_retry_once() -> None:
+    if _skipped_retry_all["running"]:
+        return
+    try:
+        result = await retry_all_skipped_api()
+        LOGGER.info(f"[Skipped] Nightly retry {result.get('status')}: {result.get('total', 0)} file(s)")
+    except Exception as e:
+        LOGGER.warning(f"[Skipped] Nightly retry could not start: {e}")
+
+
+async def nightly_retry_skipped() -> None:
+    while True:
+        await asyncio.sleep(seconds_until_hour(NIGHTLY_RETRY_HOUR, datetime.now(IST)))
+        await run_nightly_retry_once()
