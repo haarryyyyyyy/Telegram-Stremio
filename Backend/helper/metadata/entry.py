@@ -32,6 +32,7 @@ from Backend.helper.metadata.resolvers import (
     resolve_movie,
     resolve_series,
 )
+from Backend.helper import title_aliases
 from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.split_files import parse_combined_episodes, parse_split_info, strip_part_suffix
 from Backend.logger import LOGGER
@@ -177,6 +178,8 @@ async def metadata(
     try:
         # TV path: classic SxxExx, or absolute/orphan episode on anime channels
         is_tv = bool(season and episode) or (absolute and episode and anime_channel)
+        if not default_id:   # an admin fixed this title before: reuse that ID
+            default_id = await title_aliases.lookup(parsed.get("title"), year, "tv" if is_tv else "movie")
         if is_tv:
             if absolute:
                 LOGGER.info(f"Fetching TV metadata (absolute): {title} E{int(episode)} (year={year})")

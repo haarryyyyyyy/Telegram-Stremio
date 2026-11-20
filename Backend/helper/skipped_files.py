@@ -7,7 +7,8 @@ from Backend.helper.encrypt import encode_string
 from Backend.helper.manual_add import quality_hint
 from Backend.helper.metadata import caption_with_links, extract_default_id, metadata
 from Backend.helper.metadata.entry import _is_anime_channel
-from Backend.helper.metadata.parse import analyze_metadata_failure
+from Backend.helper import title_aliases
+from Backend.helper.metadata.parse import analyze_metadata_failure, parse_media_name
 from Backend.helper.pyro import apply_video_thumb_to_metadata, clean_filename, finalize_media_name, get_readable_file_size
 from Backend.helper.settings_manager import SettingsManager
 from Backend.logger import LOGGER
@@ -100,6 +101,12 @@ async def retry_skipped(client, skipped_id: str, id_override: str = None, title:
         )
     if not done:
         return {"ok": False, "message": "The database rejected the entry (validation or duplicate)."}
+
+    #----- The admin's fix teaches the indexer: next time this file-name title goes straight to the same ID
+    if (id_override or "").strip() or (title or "").strip():
+        named = parse_media_name(clean_filename(original))
+        await title_aliases.remember(named.get("title"), named.get("year"), info.get("media_type"),
+                                     info.get("imdb_id"), info.get("tmdb_id"))
 
     try:  # same follow-ups as a fresh upload
         from Backend.helper.auto_catalog import start_single_media_catalog_sync
