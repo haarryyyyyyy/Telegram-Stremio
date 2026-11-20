@@ -110,9 +110,13 @@ def _chat_ref(channel: str):
     return int(f"-100{c}") if c.isdigit() else channel
 
 
-#----- The Userbot deletes what bots cannot (messages older than 48 hours): is it logged in, and may it delete in each channel
+#----- The Userbot deletes what bots cannot (messages older than 48 hours): is it logged in, and may it delete in each channel.
+#----- Asking Telegram about every channel is slow on a small VM (a fresh session must page through the account's whole
+#----- chat list once), so this runs in the background and the health report returns the last result straight away.
+_userbot = {"result": None, "at": -1e9, "task": None}
+
+
 async def _check_userbot() -> dict:
-    from Backend.helper.task_manager import ensure_peer
     ub = botmod.Userbot
     base = {"key": "userbot", "label": "Userbot"}
     if ub is None:
@@ -123,20 +127,33 @@ async def _check_userbot() -> dict:
     if not getattr(ub, "is_connected", False):
         return {**base, "status": "error", "message": f"Logged in as {who} but disconnected. Restart the server."}
 
-    settings = SettingsManager.current()
-    titles = settings.to_dict().get("channel_titles") or {}
+    settings = SettingsManager.current().to_dict()
+    titles = settings.get("channel_titles") or {}
+    member_of = None                      # the account's chat ids, loaded at most once per check
     items = []
-    for channel in sorted(SettingsManager._all_channel_ids(settings.to_dict())):
+    for channel in sorted(SettingsManager._all_channel_ids(settings)):
         name = titles.get(channel) or titles.get(str(channel).replace("-100", "", 1)) or channel
         entry = {"name": name, "can_delete": False, "message": ""}
+        ref = _chat_ref(channel)
         try:
-            ref = _chat_ref(channel)
-            if isinstance(ref, int) and not await ensure_peer(ub, ref):
-                entry["message"] = "not a member"
-            else:
+            try:
                 m = await asyncio.wait_for(ub.get_chat_member(ref, "me"), timeout=8)
-                entry["can_delete"] = bool(getattr(getattr(m, "privileges", None), "can_delete_messages", False))
-                entry["message"] = "can delete" if entry["can_delete"] else "no Delete messages right"
+            except Exception:
+                if not isinstance(ref, int):
+                    raise
+                if member_of is None:      # unknown peer: one pass over the chat list makes every channel resolvable
+                    member_of = set()
+                    async for n, dialog in _enumerate(ub.get_dialogs()):
+                        member_of.add(dialog.chat.id)
+                        if n % 50 == 0:
+                            await asyncio.sleep(0)   # let page loads and streams run between pages of chats
+                if ref not in member_of:
+                    entry["message"] = "not a member"
+                    items.append(entry)
+                    continue
+                m = await asyncio.wait_for(ub.get_chat_member(ref, "me"), timeout=8)
+            entry["can_delete"] = bool(getattr(getattr(m, "privileges", None), "can_delete_messages", False))
+            entry["message"] = "can delete" if entry["can_delete"] else "no Delete messages right"
         except Exception as e:
             entry["message"] = str(e)[:80]
         items.append(entry)
@@ -147,15 +164,46 @@ async def _check_userbot() -> dict:
             "up": ok, "total": len(items), "items": items}
 
 
+async def _enumerate(agen):
+    n = 0
+    async for item in agen:
+        n += 1
+        yield n, item
+
+
+async def _refresh_userbot() -> None:
+    try:
+        _userbot["result"] = await _check_userbot()
+    except Exception as e:
+        _userbot["result"] = {"key": "userbot", "label": "Userbot", "status": "error", "message": str(e)[:140]}
+    _userbot["at"] = time.monotonic()
+
+
+#----- Last known Userbot result now; start a refresh in the background when it is stale
+def _userbot_status(force: bool = False) -> dict:
+    stale = force or time.monotonic() - _userbot["at"] >= _TTL["userbot"]
+    running = _userbot["task"] is not None and not _userbot["task"].done()
+    if stale and not running:
+        if botmod.Userbot is None:          # nothing to ask Telegram: answer at once
+            _userbot["task"] = None
+            _userbot["result"] = {"key": "userbot", "label": "Userbot", "status": "not_configured",
+                                  "message": "Not logged in. Bots cannot delete messages older than 48 hours. Log in under Settings, Telegram Userbot."}
+            _userbot["at"] = time.monotonic()
+        else:
+            _userbot["task"] = asyncio.create_task(_refresh_userbot())
+    return _userbot["result"] or {"key": "userbot", "label": "Userbot", "status": "checking",
+                                  "message": "Checking the Userbot's rights in each channel…"}
+
+
 async def run_health_checks(force: bool = False) -> dict:
     databases = await _cached("databases", _check_databases, force)
     bots = _check_bots()
     tmdb = await _cached("tmdb", _check_tmdb, force)
     base_url = await _cached("base_url", _check_base_url, force)
-    userbot = await _cached("userbot", _check_userbot, force)
+    userbot = _userbot_status(force)
 
     statuses = [databases["status"], bots["status"], tmdb["status"], base_url["status"]]
-    if userbot["status"] != "not_configured":   # optional: only a logged-in Userbot that cannot delete is a problem
+    if userbot["status"] not in ("not_configured", "checking"):   # optional: only a logged-in Userbot that cannot delete is a problem
         statuses.append(userbot["status"])
     if "down" in (databases["status"], bots["status"]):
         overall = "critical"
