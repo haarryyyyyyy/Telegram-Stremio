@@ -45,6 +45,7 @@ from Backend.fastapi.routes.api_routes import (
     delete_skipped_api,
     retry_all_skipped_api,
     remove_all_skipped_api,
+    ignore_all_skipped_api,
     import_skipped_api,
     get_auto_catalog_settings_api,
     get_catalog_order_api,
@@ -380,6 +381,10 @@ async def skipped_list(status: str = "pending", page: int = 1, _: bool = Depends
 @app.post("/api/admin/skipped/import")
 async def skipped_import(_: bool = Depends(require_auth)):
     return await import_skipped_api()
+
+@app.post("/api/admin/skipped/ignore-all")
+async def skipped_ignore_all(_: bool = Depends(require_auth)):
+    return await ignore_all_skipped_api()
 
 @app.post("/api/admin/skipped/remove-all")
 async def skipped_remove_all(_: bool = Depends(require_auth)):

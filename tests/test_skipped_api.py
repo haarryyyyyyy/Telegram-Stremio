@@ -130,8 +130,15 @@ async def test_remove_all_keeps_records_whose_message_could_not_be_deleted(monke
     monkeypatch.setattr(api_routes, "delete_messages_batch", delete_batch)
     monkeypatch.setattr(api_routes.task_manager, "last_delete_error", "MessageDeleteForbidden: no rights")
     monkeypatch.setattr(api_routes, "SettingsManager", types.SimpleNamespace(current=lambda: types.SimpleNamespace(skip_channel="-100999")))
+    ignored = []
+
+    async def ignore_ids(ids, reason):
+        ignored.extend(ids)
+        return len(ids)
+    monkeypatch.setattr(Backend.db, "ignore_skipped_files", ignore_ids, raising=False)
     result = await api_routes._remove_all_skipped_run()
-    assert removed == ["999:1"]                              # 999:2 stays in the list so it can be retried
+    assert removed == ["999:1"]
+    assert ignored == ["999:2"]                              # hidden from Pending and from the next import
     assert result["failed"] == 1 and "MessageDeleteForbidden" in result["error"]
 
 
@@ -158,3 +165,24 @@ async def test_nightly_retry_starts_retry_all_and_skips_when_already_running(mon
     await api_routes.run_nightly_retry_once()
     monkeypatch.setitem(api_routes._skipped_retry_all, "running", False)
     assert started == [1]
+
+
+async def test_ignore_all_hides_every_pending_file(monkeypatch):
+    calls = []
+
+    async def ignore_pending(reason):
+        calls.append(reason)
+        return 7
+    monkeypatch.setattr(Backend.db, "ignore_all_pending_skipped", ignore_pending, raising=False)
+    result = await api_routes.ignore_all_skipped_api()
+    assert result == {"status": "success", "ignored": 7} and len(calls) == 1
+
+
+def test_ignore_all_endpoint_needs_login():
+    r = TestClient(app, follow_redirects=False).post("/api/admin/skipped/ignore-all")
+    assert r.status_code in (302, 401)
+
+
+def test_page_has_an_ignore_all_button():
+    r = _client().get("/admin/skipped")
+    assert 'id="sk-ignore-all"' in r.text and "/api/admin/skipped/ignore-all" in r.text
