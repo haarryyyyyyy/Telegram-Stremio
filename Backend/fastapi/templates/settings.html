@@ -587,6 +587,112 @@
 </div>
 
 
+    <!-- ── Telegram Userbot login ──────────────────────────────────────── -->
+    <div class="settings-card">
+        <h2><i class="fa-solid fa-user-lock"></i> Telegram Userbot</h2>
+        <p class="bk-desc">
+            Bots cannot delete Telegram messages older than 48 hours. Log in with an account that is an admin
+            (with "Delete messages") of your skip, storage and announcement channels, and deletes fall back to it.
+            The session is stored encrypted. Use a separate account if you can: the session is full access to it.
+        </p>
+
+        <div id="ub-loading" style="color:var(--text-sec);font-size:.85rem">Checking…</div>
+
+        <div id="ub-in" style="display:none">
+            <p style="font-weight:600"><span id="ub-name"></span> <span id="ub-user" style="color:var(--text-sec);font-weight:400"></span></p>
+            <p id="ub-cfg" class="bk-desc" style="display:none;margin-top:.5rem">
+                Also set by USER_SESSION_STRING in config.env: it is used again at the next restart. Remove that line to log out for good.
+            </p>
+            <button type="button" class="add-btn" style="margin-top:.75rem" onclick="ubLogout()">
+                <i class="fa-solid fa-right-from-bracket"></i> Log out
+            </button>
+        </div>
+
+        <div id="ub-out" style="display:none">
+            <div id="ub-step-phone">
+                <label class="s-label">Phone number (with country code)</label>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input id="ub-phone" class="s-input" placeholder="+12025550123" autocomplete="off" style="flex:1">
+                    <button type="button" class="add-btn" onclick="ubSend()">Send code</button>
+                </div>
+            </div>
+            <div id="ub-step-code" style="display:none;margin-top:.85rem">
+                <label class="s-label">Login code (sent in Telegram)</label>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input id="ub-code" class="s-input" inputmode="numeric" autocomplete="off" style="flex:1">
+                    <button type="button" class="add-btn" onclick="ubVerify('verify-code', 'ub-code', 'code')">Verify</button>
+                </div>
+            </div>
+            <div id="ub-step-pass" style="display:none;margin-top:.85rem">
+                <label class="s-label">Two-step verification password</label>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input id="ub-pass" type="password" class="s-input" autocomplete="off" style="flex:1">
+                    <button type="button" class="add-btn" onclick="ubVerify('verify-password', 'ub-pass', 'password')">Confirm</button>
+                </div>
+            </div>
+            <p id="ub-msg" style="font-size:.8rem;margin-top:.7rem;display:none"></p>
+        </div>
+    </div>
+
+    <script>
+    let ubLoginId = null;
+    const ubEl = id => document.getElementById(id);
+    function ubMsg(text, ok) { const m = ubEl('ub-msg'); m.style.display = ''; m.style.color = ok ? '#22c55e' : '#ef4444'; m.textContent = text; }
+    function ubStep(step) { for (const n of ['phone', 'code', 'pass']) ubEl('ub-step-' + n).style.display = n === step ? '' : 'none'; }
+
+    async function ubApi(path, method, body) {
+        const res = await fetch('/api/admin/settings/session' + path, {
+            method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed');
+        return data;
+    }
+
+    async function ubLoad() {
+        try {
+            const st = await ubApi('', 'GET');
+            ubEl('ub-loading').style.display = 'none';
+            ubEl('ub-in').style.display = st.connected ? '' : 'none';
+            ubEl('ub-out').style.display = st.connected ? 'none' : '';
+            ubEl('ub-name').textContent = st.name || 'Telegram user';
+            ubEl('ub-user').textContent = st.username ? '@' + st.username : '';
+            ubEl('ub-cfg').style.display = st.from_config ? '' : 'none';
+            if (!st.connected) ubStep('phone');
+        } catch (e) { ubEl('ub-loading').textContent = 'Could not load the Userbot status.'; }
+    }
+
+    async function ubSend() {
+        const phone = ubEl('ub-phone').value.trim();
+        if (!phone) return ubMsg('Enter your phone number.', false);
+        ubMsg('Sending code…', true);
+        try {
+            ubLoginId = (await ubApi('/send-code', 'POST', { phone })).login_id;
+            ubStep('code'); ubMsg('Code sent. Check Telegram.', true);
+        } catch (e) { ubMsg(e.message, false); }
+    }
+
+    async function ubVerify(path, inputId, field) {
+        const value = ubEl(inputId).value.trim();
+        if (!value) return ubMsg('Fill in the field.', false);
+        ubMsg('Checking…', true);
+        try {
+            const data = await ubApi('/' + path, 'POST', { login_id: ubLoginId, [field]: value });
+            if (data.status === 'password_needed') { ubStep('pass'); return ubMsg('This account has two-step verification. Enter the password.', true); }
+            showToast('Userbot logged in.', 'success', 'Telegram');
+            ubEl('ub-code').value = ''; ubEl('ub-pass').value = '';
+            ubLoad();
+        } catch (e) { ubMsg(e.message, false); }
+    }
+
+    async function ubLogout() {
+        if (!confirm('Log the Userbot out? Messages older than 48 hours can no longer be deleted.')) return;
+        try { await ubApi('', 'DELETE'); showToast('Userbot logged out.', 'info', 'Telegram'); ubLoad(); }
+        catch (e) { showToast(e.message, 'error', 'Telegram'); }
+    }
+
+    document.addEventListener('DOMContentLoaded', ubLoad);
+    </script>
+
     <!-- ── Skip Channel (metadata failures) ────────────────────────────── -->
     <div class="settings-card">
         <h2><i class="fa-solid fa-inbox"></i> Skip Channel</h2>

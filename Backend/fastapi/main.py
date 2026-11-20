@@ -46,6 +46,11 @@ from Backend.fastapi.routes.api_routes import (
     retry_all_skipped_api,
     remove_all_skipped_api,
     ignore_all_skipped_api,
+    session_logout_api,
+    session_send_code_api,
+    session_status_api,
+    session_verify_code_api,
+    session_verify_password_api,
     delete_ignored_skipped_api,
     import_skipped_api,
     get_auto_catalog_settings_api,
@@ -386,6 +391,28 @@ async def skipped_import(_: bool = Depends(require_auth)):
 @app.post("/api/admin/skipped/delete-ignored")
 async def skipped_delete_ignored(_: bool = Depends(require_auth)):
     return await delete_ignored_skipped_api()
+
+#----- Userbot login/logout (deletes messages older than 48 hours that bots cannot)
+@app.get("/api/admin/settings/session")
+async def session_status(_: bool = Depends(require_auth)):
+    return await session_status_api()
+
+@app.post("/api/admin/settings/session/send-code")
+async def session_send_code(payload: dict, _: bool = Depends(require_auth)):
+    return await session_send_code_api(payload)
+
+@app.post("/api/admin/settings/session/verify-code")
+async def session_verify_code(payload: dict, _: bool = Depends(require_auth)):
+    return await session_verify_code_api(payload)
+
+@app.post("/api/admin/settings/session/verify-password")
+async def session_verify_password(payload: dict, _: bool = Depends(require_auth)):
+    return await session_verify_password_api(payload)
+
+@app.delete("/api/admin/settings/session")
+async def session_logout(_: bool = Depends(require_auth)):
+    return await session_logout_api()
+
 
 @app.post("/api/admin/skipped/ignore-all")
 async def skipped_ignore_all(_: bool = Depends(require_auth)):

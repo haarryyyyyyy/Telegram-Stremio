@@ -15,10 +15,10 @@ from Backend.helper.link_checker import DeadLinkChecker
 from Backend.helper.pyro import restart_notification, setup_bot_commands
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
 from Backend.helper.passwords import verify_password
+from Backend.helper.session_auth import activate_userbot, deactivate_userbot, get_active_session_string
 from Backend.helper.settings_manager import SettingsManager
 from Backend.config import Telegram
 from Backend.logger import LOGGER
-import Backend.pyrofork.bot as botmod
 from Backend.pyrofork.bot import StreamBot, multi_clients
 from Backend.pyrofork.clients import initialize_clients
 
@@ -51,13 +51,9 @@ async def start_services():
         await StreamBot.start()
         StreamBot.username = StreamBot.me.username
         LOGGER.info(f"Bot Client : [@{StreamBot.username}]")
-        if Telegram.USER_SESSION_STRING:
-            try:
-                await botmod.build_userbot(Telegram.USER_SESSION_STRING).start()
-                LOGGER.info(f"Userbot: [@{botmod.Userbot.me.username or botmod.Userbot.me.id}] (deletes old skip-channel files)")
-            except Exception as e:
-                botmod.Userbot = None
-                LOGGER.error(f"Userbot did not start, old skip-channel files cannot be deleted: {e}")
+        session = Telegram.USER_SESSION_STRING or await get_active_session_string()
+        if session:
+            await activate_userbot(session)
         await asyncio.sleep(1.2)
 
         await asyncio.sleep(1.2)
@@ -97,8 +93,7 @@ async def stop_services():
         await asyncio.gather(*pending_tasks, return_exceptions=True)
 
         await StreamBot.stop()
-        if botmod.Userbot is not None:
-            await botmod.Userbot.stop()
+        await deactivate_userbot()
 
         await db.disconnect()
         LOGGER.info("Services stopped successfully.")
