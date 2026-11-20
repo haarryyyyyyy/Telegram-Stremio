@@ -1074,6 +1074,16 @@ uv run python scripts/migrate_combined.py
 uv run python scripts/migrate_combined.py --apply
 ```
 
+## Deleting old skipped files
+
+Telegram never lets bots delete channel messages older than 48 hours, even as admins. To let **Remove all** and **Delete everything** (Ignored tab) clear those from the skip channel, add a user account:
+
+1. Make the account an admin of the skip channel with "Delete messages". A separate account is safer.
+2. On the server run `uv run python scripts/make_user_session.py` and log in.
+3. Paste the printed `USER_SESSION_STRING="..."` line into `config.env` and restart.
+
+The session string is full access to that account, so keep `config.env` private. The account is only used for these deletes.
+
 ## Nuvio badges
 
 The server hosts the Prism badge pack from [nuvio-badge-kit](https://github.com/jyotiprakash101/nuvio-badge-kit) (MIT) at `/badges/prism.json`. Badge images download from GitHub once and are then served from `cache/badges/`. Nuvio only shows image badges from packs a user adds, so each user pastes this link once in **Profile → Layout → Streams → Fusion badge URLs**. The addon install page shows the link with a copy button.
