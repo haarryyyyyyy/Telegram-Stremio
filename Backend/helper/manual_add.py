@@ -37,6 +37,19 @@ def quality_from_height(height: int) -> str:
     return "240p"
 
 
+#----- Best quality for a message when its title text has none: real video height, then whichever of the
+#----- file name / caption mentions a resolution. The indexer reads only one of them as the title.
+def quality_hint(message) -> str:
+    media = getattr(message, "video", None) or getattr(message, "document", None)
+    quality = quality_from_height(getattr(media, "height", 0) or 0)
+    for text in (getattr(media, "file_name", None), getattr(message, "caption", None)):
+        if quality:
+            break
+        if text:
+            quality = parse_media_name(clean_filename(text)).get("quality") or ""
+    return quality
+
+
 #----- Fetch a message and return the stream fields the manual-add flow needs.
 async def resolve_telegram_message(client, url: str = None, chat_id=None, msg_id=None) -> dict:
     if url:
