@@ -48,6 +48,7 @@
                 <span id="sk-total" class="sk-meta"></span>
                 <button class="sk-btn" id="sk-import" onclick="importSkipChannel()">Import from skip channel</button>
                 <button class="sk-btn primary" id="sk-retry-all" onclick="retryAll()">Retry all</button>
+                <button class="sk-btn" id="sk-ignore-all" onclick="ignoreAll()">Ignore all</button>
                 <button class="sk-btn danger" id="sk-remove-all" onclick="removeAll()">Remove all</button>
             </div>
         </div>
@@ -222,8 +223,21 @@ function updateRemove(st) {
         p.style.color = st.failed ? 'var(--danger, #ef4444)' : '';
         p.textContent = 'Removed ' + st.records + ' record(s); deleted ' + st.messages + ' message(s) from the skip channel.'
             + (st.kept ? ' ' + st.kept + ' file(s) outside the skip channel were left in Telegram.' : '')
-            + (st.failed ? ' ' + st.failed + ' could not be deleted by any bot and are still listed (' + st.error + '). Make one bot an admin of the skip channel with "Delete messages", then try again.' : '');
+            + (st.failed ? ' ' + st.failed + ' could not be deleted and were moved to Ignored: Telegram does not let bots delete messages older than 48 hours. Delete those by hand in the skip channel if you want them gone. (' + st.error + ')' : '');
     } else p.style.display = 'none';
+}
+
+async function ignoreAll() {
+    let total;
+    try { total = (await api('/api/admin/skipped?status=pending')).total; } catch (e) { alert(e.message); return; }
+    if (!total) { alert('No pending files.'); return; }
+    if (!confirm('Ignore all ' + total + ' pending files? They move to the Ignored tab and will not come back on the next import.')) return;
+    try {
+        const r = await post('/api/admin/skipped/ignore-all');
+        const p = document.getElementById('sk-remove-status');
+        p.style.display = ''; p.style.color = ''; p.textContent = 'Ignored ' + r.ignored + ' file(s).';
+        load();
+    } catch (e) { alert(e.message); }
 }
 
 async function removeAll() {

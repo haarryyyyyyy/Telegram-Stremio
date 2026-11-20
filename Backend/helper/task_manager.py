@@ -28,6 +28,7 @@ _FALLBACK_WORTHY = (
     RPCError,
 )
 _SESSION_DEAD = (AuthKeyUnregistered, SessionRevoked)
+PROBE_SINGLES = 3
 last_delete_error = ""   # the most recent Telegram reason a delete failed, shown on the Skipped page
 
 
@@ -103,8 +104,13 @@ async def _delete_with(client, label: str, chat_id: int, msg_ids: List[int]) -> 
     if len(remaining) <= 1:
         return remaining
     left = []
-    for mid in remaining:
-        left += await _delete_chunk(client, label, chat_id, [mid])
+    for n, mid in enumerate(remaining):
+        failed = await _delete_chunk(client, label, chat_id, [mid])
+        left += failed
+        #----- The first few all failing means this bot cannot delete any of them (Telegram's 48-hour limit
+        #----- for bots, or no rights): stop instead of one refused call per message.
+        if n == PROBE_SINGLES - 1 and len(left) == PROBE_SINGLES:
+            return left + remaining[PROBE_SINGLES:]
         await sleep(0.05)
     return left
 

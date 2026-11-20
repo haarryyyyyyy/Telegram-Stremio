@@ -143,3 +143,36 @@ async def test_a_plain_retry_without_admin_input_is_not_remembered(monkeypatch, 
     monkeypatch.setattr(skipped_files.title_aliases, "remember", remember)
     await skipped_files.retry_skipped(_Client(_doc_message(file_name="Aval (2017) 1080p.mkv")), "1234:77")
     assert remembered == []
+
+
+async def test_import_never_brings_back_an_ignored_file(monkeypatch):
+    added = []
+
+    async def get(sid):
+        return {"_id": sid, "status": "ignored"}            # already in the list (ignored)
+
+    async def upsert(doc):
+        added.append(doc["_id"])
+
+    async def exists(*_a):
+        return False
+
+    monkeypatch.setattr(skipped_files.db, "get_skipped_file", get)
+    monkeypatch.setattr(skipped_files.db, "upsert_skipped_file", upsert)
+    monkeypatch.setattr(skipped_files.db, "stream_exists", exists)
+    monkeypatch.setattr(skipped_files, "SettingsManager", NS(current=lambda: NS(skip_channel="-100999")))
+
+    class C:
+        async def get_messages(self, chat, ids):
+            first = ids[0]
+            return [NS(empty=False, chat=NS(id=-100999), id=i, caption=None, video=None,
+                       document=NS(file_name="x.mkv", file_size=1, height=0)) if (first == 1 and i == 5) else NS(empty=True)
+                    for i in ids]
+
+    monkeypatch.setattr(skipped_files.asyncio, "sleep", _nosleep)
+    await skipped_files.import_skip_channel(C(), batch=10, stop_after_empty=1)
+    assert added == []
+
+
+async def _nosleep(*_a):
+    return None

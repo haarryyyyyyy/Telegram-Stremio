@@ -2280,14 +2280,21 @@ async def import_skipped_api() -> dict:
 
 #----- Remove every skipped record and delete the skip-channel copies from Telegram.
 #----- Only messages inside the skip channel are deleted; a file still in a library channel is never touched.
+UNDELETABLE_REASON = ("Ignored: Telegram does not let bots delete messages older than 48 hours. "
+                      "Delete it from the skip channel by hand if you want it gone.")
+
+
 async def _remove_all_skipped_run() -> dict:
     skip = str(SettingsManager.current().skip_channel or "").replace("-100", "").strip()
     docs = (await db.list_skipped_files(None, 1, 100000))["items"]
     in_skip = [int(d["msg_id"]) for d in docs if skip and str(d.get("chat_id")) == skip]
     failed = set(await delete_messages_batch(int(f"-100{skip}"), in_skip) or []) if in_skip else set()
-    #----- A message no bot could delete keeps its record, so it stays visible and can be retried
-    gone = [d["_id"] for d in docs if not (skip and str(d.get("chat_id")) == skip and int(d["msg_id"]) in failed)]
+    undeletable = [d["_id"] for d in docs if skip and str(d.get("chat_id")) == skip and int(d["msg_id"]) in failed]
+    gone = [d["_id"] for d in docs if d["_id"] not in set(undeletable)]
     records = await db.delete_skipped_files(gone)
+    #----- Telegram never lets bots delete messages older than 48 hours, whatever their admin rights.
+    #----- Those are marked ignored, so they leave the list and the next import does not bring them back.
+    await db.ignore_skipped_files(undeletable, UNDELETABLE_REASON)
     return {"records": records, "messages": len(in_skip) - len(failed), "kept": len(docs) - len(in_skip),
             "failed": len(failed),
             "error": f"{task_manager.last_delete_error}. Bot rights in the skip channel: "
@@ -2339,3 +2346,9 @@ async def nightly_retry_skipped() -> None:
     while True:
         await asyncio.sleep(seconds_until_hour(NIGHTLY_RETRY_HOUR, datetime.now(IST)))
         await run_nightly_retry_once()
+
+
+#----- Hide every pending skipped file. Ignored files stay out of Pending, nightly retries and future imports.
+async def ignore_all_skipped_api() -> dict:
+    count = await db.ignore_all_pending_skipped("Ignored with Ignore all.")
+    return {"status": "success", "ignored": count}

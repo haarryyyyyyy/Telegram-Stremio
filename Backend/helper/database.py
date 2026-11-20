@@ -1115,6 +1115,18 @@ class Database:
         res = await self.dbs["tracking"]["skipped_files"].update_one({"_id": skipped_id}, {"$set": fields})
         return res.matched_count > 0
 
+    async def ignore_skipped_files(self, ids: list, reason: str) -> int:
+        if not ids:
+            return 0
+        res = await self.dbs["tracking"]["skipped_files"].update_many(
+            {"_id": {"$in": list(ids)}}, {"$set": {"status": "ignored", "reason": reason}})
+        return res.modified_count
+
+    async def ignore_all_pending_skipped(self, reason: str) -> int:
+        res = await self.dbs["tracking"]["skipped_files"].update_many(
+            {"status": "pending"}, {"$set": {"status": "ignored", "reason": reason}})
+        return res.modified_count
+
     async def delete_skipped_files(self, ids: list) -> int:
         if not ids:
             return 0

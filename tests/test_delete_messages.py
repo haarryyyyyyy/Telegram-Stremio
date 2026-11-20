@@ -73,3 +73,13 @@ async def test_rights_report_names_each_bot_and_its_delete_right(monkeypatch):
     assert "@main_bot: administrator, can delete" in report
     assert "@helper_bot: member, cannot delete" in report
     assert "@gone_bot: not reachable (CHANNEL_PRIVATE)" in report
+
+
+async def test_a_bot_that_cannot_delete_anything_stops_after_three_tries(monkeypatch):
+    bot = Bot(allowed=[])
+    monkeypatch.setattr(task_manager, "StreamBot", bot)
+    monkeypatch.setattr(task_manager, "multi_clients", {0: bot})
+    monkeypatch.setattr(task_manager, "sleep", _no_sleep)
+    failed = await task_manager.delete_messages_batch(-100999, list(range(1, 51)))
+    batches = 50 // task_manager.DELETE_BATCH_SIZE
+    assert failed == list(range(1, 51)) and len(bot.calls) == batches * (1 + 3)   # per batch: one try, three probes
